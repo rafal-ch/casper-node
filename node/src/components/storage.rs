@@ -64,12 +64,9 @@ use tempfile::TempDir;
 use thiserror::Error;
 use tracing::{debug, error, info};
 
-use casper_execution_engine::shared::newtypes::Blake2bHash;
-use casper_types::{EraId, ExecutionResult, ProtocolVersion, Transfer, Transform};
+use casper_types::{Digest, EraId, ExecutionResult, ProtocolVersion, Transfer, Transform};
 
 use super::Component;
-#[cfg(test)]
-use crate::crypto::hash::Digest;
 use crate::{
     effect::{
         requests::{StateStoreRequest, StorageRequest},
@@ -939,8 +936,8 @@ impl Storage {
     }
 
     /// Retrieves the state root hashes from storage to check the integrity of the trie store.
-    pub(crate) fn get_state_root_hashes_for_trie_check(&self) -> Option<Vec<Blake2bHash>> {
-        let mut blake_hashes: Vec<Blake2bHash> = Vec::new();
+    pub(crate) fn get_state_root_hashes_for_trie_check(&self) -> Option<Vec<Digest>> {
+        let mut blake_hashes: Vec<Digest> = Vec::new();
         let txn =
             self.env.begin_ro_txn().ok().unwrap_or_else(|| {
                 panic!("could not open storage transaction for trie store check")
@@ -951,8 +948,8 @@ impl Storage {
             .unwrap_or_else(|| panic!("could not create cursor for trie store check"));
         for (_, raw_val) in cursor.iter() {
             let header: BlockHeader = lmdb_ext::deserialize(raw_val).ok()?;
-            let blake_hash = Blake2bHash::from(*header.state_root_hash());
-            blake_hashes.push(blake_hash);
+            let blake_hash = header.state_root_hash();
+            blake_hashes.push(*blake_hash);
         }
 
         blake_hashes.sort();

@@ -11,11 +11,6 @@ use std::{
     hash::Hash,
 };
 
-use blake2::{
-    digest::{Update, VariableOutput},
-    VarBlake2b,
-};
-
 use datasize::DataSize;
 use hex::FromHexError;
 use hex_fmt::HexList;
@@ -30,7 +25,7 @@ use thiserror::Error;
 use casper_types::system::auction::BLOCK_REWARD;
 use casper_types::{
     bytesrepr::{self, FromBytes, ToBytes},
-    EraId, ProtocolVersion, PublicKey, SecretKey, Signature, U512,
+    Digest, EraId, ProtocolVersion, PublicKey, SecretKey, Signature, U512,
 };
 
 use super::{Item, Tag, Timestamp};
@@ -40,11 +35,7 @@ use crate::crypto::generate_ed25519_keypair;
 use crate::testing::TestRng;
 use crate::{
     components::consensus,
-    crypto::{
-        self,
-        hash::{self, Digest},
-        AsymmetricKeyExt,
-    },
+    crypto::{self, AsymmetricKeyExt},
     rpcs::docs::DocExample,
     types::{
         error::BlockCreationError, Deploy, DeployHash, DeployOrTransferHash, JsonBlock,
@@ -416,9 +407,10 @@ impl FinalizedBlock {
         is_switch: bool,
     ) -> Self {
         let deploy_count = rng.gen_range(0..11);
-        let deploy_hashes = iter::repeat_with(|| DeployHash::new(Digest::random(rng)))
-            .take(deploy_count)
-            .collect();
+        let deploy_hashes =
+            iter::repeat_with(|| DeployHash::new(rng.gen::<[u8; Digest::LENGTH]>().into()))
+                .take(deploy_count)
+                .collect();
         let random_bit = rng.gen();
         // TODO - make Timestamp deterministic.
         let timestamp = Timestamp::now();
@@ -540,7 +532,7 @@ impl BlockHash {
     /// Creates a random block hash.
     #[cfg(test)]
     pub fn random(rng: &mut TestRng) -> Self {
-        let hash = Digest::random(rng);
+        let hash = rng.gen::<[u8; Digest::LENGTH]>().into();
         BlockHash(hash)
     }
 }
@@ -743,7 +735,7 @@ impl BlockHeader {
     pub fn hash(&self) -> BlockHash {
         let serialized_header = Self::serialize(self)
             .unwrap_or_else(|error| panic!("should serialize block header: {}", error));
-        BlockHash::new(hash::hash(&serialized_header))
+        BlockHash::new(Digest::hash(&serialized_header))
     }
 
     /// Returns true if block is Genesis' child.
@@ -890,7 +882,7 @@ impl BlockBody {
         let serialized_body = self
             .to_bytes()
             .unwrap_or_else(|error| panic!("should serialize block body: {}", error));
-        hash::hash(&serialized_body)
+        Digest::hash(&serialized_body)
     }
 }
 
@@ -1063,21 +1055,14 @@ impl Block {
             }
         };
 
-        let mut accumulated_seed = [0; Digest::LENGTH];
-
-        let mut hasher = VarBlake2b::new(Digest::LENGTH)?;
-        hasher.update(parent_seed);
-        hasher.update([finalized_block.random_bit as u8]);
-        hasher.finalize_variable(|slice| {
-            accumulated_seed.copy_from_slice(slice);
-        });
+        let accumulated_seed = Digest::hash_pair(parent_seed, [finalized_block.random_bit as u8]);
 
         let header = BlockHeader {
             parent_hash,
             state_root_hash,
             body_hash,
             random_bit: finalized_block.random_bit,
-            accumulated_seed: accumulated_seed.into(),
+            accumulated_seed,
             era_end,
             timestamp: finalized_block.timestamp,
             era_id: finalized_block.era_id,
@@ -1202,10 +1187,10 @@ impl Block {
         protocol_version: ProtocolVersion,
         is_switch: bool,
     ) -> Self {
-        let parent_hash = BlockHash::new(Digest::random(rng));
-        let state_root_hash = Digest::random(rng);
+        let parent_hash = BlockHash::new(rng.gen::<[u8; Digest::LENGTH]>().into());
+        let state_root_hash = rng.gen::<[u8; Digest::LENGTH]>().into();
         let finalized_block = FinalizedBlock::random_with_specifics(rng, era_id, height, is_switch);
-        let parent_seed = Digest::random(rng);
+        let parent_seed = rng.gen::<[u8; Digest::LENGTH]>().into();
         let next_era_validator_weights = finalized_block
             .era_report
             .as_ref()
@@ -1748,7 +1733,7 @@ mod tests {
         let mut rng = TestRng::from_seed([2u8; 16]);
         let mut block = Block::random(&mut rng);
 
-        let bogus_block_hash = hash::hash(&[0xde, 0xad, 0xbe, 0xef]);
+        let bogus_block_hash = Digest::hash(&[0xde, 0xad, 0xbe, 0xef]);
         block.header.body_hash = bogus_block_hash;
 
         let actual_body_hash = block.body.hash();
@@ -1768,7 +1753,7 @@ mod tests {
         let mut rng = TestRng::from_seed([3u8; 16]);
         let mut block = Block::random(&mut rng);
 
-        let bogus_block_hash: BlockHash = hash::hash(&[0xde, 0xad, 0xbe, 0xef]).into();
+        let bogus_block_hash: BlockHash = Digest::hash(&[0xde, 0xad, 0xbe, 0xef]).into();
         block.hash = bogus_block_hash;
 
         let actual_block_hash = block.header.hash();

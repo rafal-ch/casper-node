@@ -24,9 +24,4 @@ pub enum BlockCreationError {
         /// An optional map of the next era validator weights used to construct an `EraEnd`
         maybe_next_era_validator_weights: Option<BTreeMap<PublicKey, U512>>,
     },
-
-    /// Wrapper of [`blake2::digest::InvalidOutputSize`]; occurs when trying to construct an
-    /// `EraEnd`.
-    #[error(transparent)]
-    Blake2bDigestInvalidOutputSize(#[from] blake2::digest::InvalidOutputSize),
 }
