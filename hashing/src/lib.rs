@@ -1,5 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+pub mod primitives;
+
 /// The number of bytes in a Blake2b hash
 use core::{array::TryFromSliceError, convert::TryFrom};
 

@@ -10,7 +10,6 @@ use std::{
 };
 
 use derive_more::From;
-use pnet::datalink;
 use prometheus::Registry;
 use reactor::ReactorEvent;
 use serde::{Deserialize, Serialize};

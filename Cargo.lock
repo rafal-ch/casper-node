@@ -2005,6 +2005,8 @@ dependencies = [
  "datasize",
  "hex",
  "hex-buffer-serde",
+ "itertools",
+ "rand 0.8.4",
  "schemars",
  "serde",
 ]
