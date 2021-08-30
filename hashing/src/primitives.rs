@@ -100,15 +100,56 @@ where
     hash_pair(leaf_count_bytes, raw_root)
 }
 
-struct ChunkAndMerkleProof {
+struct IndexedMerkleProof {
     index: u64,
     count: u64,
     merkle_proof: Vec<Blake2bHash>,
 }
 
-impl ChunkAndMerkleProof {
+impl IndexedMerkleProof {
+    fn new<I>(leaves: I, index: u64) -> Result<IndexedMerkleProof, ()>
+    where
+        I: IntoIterator<Item = Blake2bHash>,
+    {
+        enum HashOrProof {
+            Hash(Blake2bHash),
+            Proof(Vec<Blake2bHash>),
+        }
+        use HashOrProof::{Hash, Proof};
+
+        leaves
+            .into_iter()
+            .enumerate()
+            .map(|(i, hash)| {
+                if i as u64 == index {
+                    (1, Proof(vec![hash]))
+                } else {
+                    (1, Hash(hash))
+                }
+            })
+            .tree_fold1(|(count_x, x), (count_y, y)| match (x, y) {
+                (Hash(hash_x), Hash(hash_y)) => {
+                    (count_x + count_y, Hash(hash_pair(&hash_x, &hash_y)))
+                }
+                (Hash(hash), Proof(mut proof)) | (Proof(mut proof), Hash(hash)) => {
+                    proof.push(hash);
+                    (count_x + count_y, Proof(proof))
+                }
+                (Proof(_), Proof(_)) => unreachable!(),
+            })
+            .and_then(|(count, x)| match x {
+                Proof(merkle_proof) => Some(IndexedMerkleProof {
+                    index,
+                    count,
+                    merkle_proof,
+                }),
+                _ => None,
+            })
+            .ok_or(())
+    }
+
     pub fn root_hash(&self) -> Result<Blake2bHash, ()> {
-        let ChunkAndMerkleProof {
+        let IndexedMerkleProof {
             index,
             count,
             merkle_proof,
@@ -116,48 +157,6 @@ impl ChunkAndMerkleProof {
         let raw_root = compute_raw_root_from_proof(*index as usize, *count as usize, merkle_proof)?;
         Ok(hash_pair((*count as u64).to_le_bytes(), raw_root))
     }
-}
-
-fn merkle_proof<I>(count: usize, leaves: I, index: usize) -> Result<ChunkAndMerkleProof, ()>
-where
-    I: IntoIterator<Item = Blake2bHash>,
-{
-    enum HashOrProof {
-        Hash(Blake2bHash),
-        Proof(Vec<Blake2bHash>),
-    }
-    use HashOrProof::{Hash, Proof};
-
-    leaves
-        .into_iter()
-        .enumerate()
-        .map(|(i, hash)| {
-            if i == index {
-                Proof(vec![hash])
-            } else {
-                Hash(hash)
-            }
-        })
-        .tree_fold1(|x, y| match (x, y) {
-            (Hash(mut hash_x), Hash(hash_y)) => {
-                hash_x = hash_pair(&hash_x, &hash_y);
-                Hash(hash_x)
-            }
-            (Hash(hash), Proof(mut proof)) | (Proof(mut proof), Hash(hash)) => {
-                proof.push(hash);
-                Proof(proof)
-            }
-            (Proof(_), Proof(_)) => unreachable!(),
-        })
-        .and_then(|x| match x {
-            Proof(merkle_proof) => Some(ChunkAndMerkleProof {
-                index: index as u64,
-                count: count as u64,
-                merkle_proof,
-            }),
-            _ => None,
-        })
-        .ok_or(())
 }
 
 fn compute_raw_root_from_proof(
@@ -232,22 +231,16 @@ mod test {
     fn test_merkle_proofs() {
         let mut rng = rand::thread_rng();
         for _ in 0..20 {
-            let leaf_count: usize = rng.gen_range(1..100);
+            let leaf_count: u64 = rng.gen_range(1..100);
             let i = rng.gen_range(0..leaf_count);
             let leaves: Vec<Blake2bHash> = (0..leaf_count)
                 .map(|i| blake2b_hash(i.to_le_bytes()))
                 .collect();
             let root = hash_merkle_tree(leaves.iter().cloned());
-            let mut chunk_and_merkle_proof =
-                merkle_proof(leaf_count, leaves.iter().cloned(), i).unwrap();
-            chunk_and_merkle_proof.count = leaves.len() as u64;
-            assert_eq!(leaves[i], chunk_and_merkle_proof.merkle_proof[0]);
-            assert_eq!(
-                root,
-                chunk_and_merkle_proof.root_hash().unwrap() /* compute_root_from_proof(&
-                                                             * chunk_and_merkle_proof, i,
-                                                             * leaf_count).unwrap() */
-            );
+            let indexed_merkle_proof = IndexedMerkleProof::new(leaves.iter().cloned(), i).unwrap();
+            assert_eq!(leaf_count, indexed_merkle_proof.count);
+            assert_eq!(leaves[i as usize], indexed_merkle_proof.merkle_proof[0]);
+            assert_eq!(root, indexed_merkle_proof.root_hash().unwrap());
         }
     }
 }
