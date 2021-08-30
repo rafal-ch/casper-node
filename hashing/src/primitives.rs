@@ -61,19 +61,6 @@ fn hash_pair<T: AsRef<[u8]>, U: AsRef<[u8]>>(data1: T, data2: U) -> Blake2bHash 
     Blake2bHash(result)
 }
 
-fn u64_to_byte_slice(x: u64) -> [u8; 8] {
-    [
-        x as u8,
-        (x >> 8) as u8,
-        (x >> 16) as u8,
-        (x >> 24) as u8,
-        (x >> 32) as u8,
-        (x >> 40) as u8,
-        (x >> 48) as u8,
-        (x >> 56) as u8,
-    ]
-}
-
 /// Hashes a `impl IntoIterator` of [`Blake2bHash`]s into a single [`Blake2bHash`] by constructing a
 /// [Merkle tree][1]. Reduces pairs of elements in the [`Vec`] by repeatedly calling [hash_pair].
 ///
@@ -109,7 +96,7 @@ where
             (count_x + count_y, hash_pair(&hash_x, &hash_y))
         })
         .unwrap_or((0, SENTINEL2));
-    let leaf_count_bytes = u64_to_byte_slice(leaf_count as u64);
+    let leaf_count_bytes = (leaf_count as u64).to_le_bytes();
     hash_pair(leaf_count_bytes, raw_root)
 }
 
@@ -127,7 +114,7 @@ impl ChunkAndMerkleProof {
             merkle_proof,
         } = self;
         let raw_root = compute_raw_root_from_proof(*index as usize, *count as usize, merkle_proof)?;
-        Ok(hash_pair(u64_to_byte_slice(*count as u64), raw_root))
+        Ok(hash_pair((*count as u64).to_le_bytes(), raw_root))
     }
 }
 
