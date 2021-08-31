@@ -1,5 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+mod chunk;
+mod error;
 pub mod primitives;
 
 /// The number of bytes in a Blake2b hash
@@ -14,6 +16,8 @@ use blake2::{
     digest::{Update, VariableOutput},
     VarBlake2b,
 };
+
+pub use error::{MerkleConstructionError, MerkleVerificationError};
 
 #[cfg(feature = "std")]
 use hex_buffer_serde::{Hex, HexForm};

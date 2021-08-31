@@ -2006,9 +2006,12 @@ dependencies = [
  "hex",
  "hex-buffer-serde",
  "itertools",
+ "proptest",
+ "proptest-attr-macro",
  "rand 0.8.4",
  "schemars",
  "serde",
+ "thiserror",
 ]
 
 [[package]]
@@ -3202,6 +3205,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "proptest-attr-macro"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fa06db3abc95f048e0afa371db5569b24912bb98a8e2e2e89c75c5b43bc2aa8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "protobuf"
 version = "2.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4106,18 +4120,18 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.26"
+version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93119e4feac1cbe6c798c34d3a53ea0026b0b1de6a120deef895137c0529bfe2"
+checksum = "283d5230e63df9608ac7d9691adc1dfb6e701225436eb64d0b9a7f0a5a04f6ec"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.26"
+version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "060d69a0afe7796bf42e9e2ff91f5ee691fb15c53d38b4b62a9a53eb23164745"
+checksum = "fa3884228611f5cd3608e2d409bf7dce832e4eb3135e3f11addbd7e41bd68e71"
 dependencies = [
  "proc-macro2",
  "quote",
