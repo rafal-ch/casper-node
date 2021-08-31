@@ -167,7 +167,7 @@ impl IndexedMerkleProof {
         // Recursion depth can not exceed 64
         fn compute_raw_root_from_proof(
             index: usize,
-            leaf_count: usize,
+            leaf_count: u64,
             proof: &[Blake2bHash],
         ) -> Blake2bHash {
             if leaf_count == 0 {
@@ -176,15 +176,17 @@ impl IndexedMerkleProof {
             if leaf_count == 1 {
                 return proof[0].clone();
             }
-            let n = leaf_count.next_power_of_two();
-            let half = n / 2;
+            let half = 1u64 << (63 - (leaf_count - 1).leading_zeros());
             let last = proof.len() - 1;
-            if index < half {
+            if (index as u64) < half {
                 let left = compute_raw_root_from_proof(index, half, &proof[..last]);
                 hash_pair(&left, &proof[last])
             } else {
-                let right =
-                    compute_raw_root_from_proof(index - half, leaf_count - half, &proof[..last]);
+                let right = compute_raw_root_from_proof(
+                    index - (half as usize),
+                    leaf_count - half,
+                    &proof[..last],
+                );
                 hash_pair(&proof[last], &right)
             }
         }
@@ -194,7 +196,7 @@ impl IndexedMerkleProof {
             count,
             merkle_proof,
         } = self;
-        let raw_root = compute_raw_root_from_proof(*index as usize, *count as usize, merkle_proof);
+        let raw_root = compute_raw_root_from_proof(*index as usize, *count, merkle_proof);
         hash_pair(count.to_le_bytes(), raw_root)
     }
 
