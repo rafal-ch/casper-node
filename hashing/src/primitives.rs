@@ -5,10 +5,10 @@
 //!
 //! [1]: https://datatracker.ietf.org/doc/html/rfc7693
 
-#[cfg(all(feature = "no-std", no_std))]
-use alloc::vec::Vec;
-#[cfg(all(features = "std", not(no_std)))]
-use std::vec::Vec;
+#[cfg(not(feature = "std"))]
+pub use alloc::vec::Vec;
+#[cfg(feature = "std")]
+pub use std::vec::Vec;
 
 use blake2::{
     digest::{Update, VariableOutput},
@@ -92,8 +92,14 @@ where
     let (leaf_count, raw_root) = leaves
         .into_iter()
         .map(|x| (1u64, x))
-        .tree_fold1(|(count_x, hash_x), (count_y, hash_y)| {
-            (count_x + count_y, hash_pair(&hash_x, &hash_y))
+        .tree_fold1(|(mut count_x, mut hash_x), (count_y, hash_y)| {
+            let mut hasher = VarBlake2b::new(Digest::LENGTH).unwrap();
+            hasher.update(&hash_x);
+            hasher.update(&hash_y);
+            hasher.finalize_variable(|slice| {
+                hash_x.0.copy_from_slice(slice);
+            });
+            (count_x + count_y, hash_x)
         })
         .unwrap_or((0, SENTINEL2));
     let leaf_count_bytes = leaf_count.to_le_bytes();
@@ -107,7 +113,7 @@ pub struct IndexedMerkleProof {
 }
 
 impl IndexedMerkleProof {
-    pub(super) fn new<I>(
+    pub(crate) fn new<I>(
         leaves: I,
         index: u64,
     ) -> Result<IndexedMerkleProof, MerkleConstructionError>
@@ -163,40 +169,58 @@ impl IndexedMerkleProof {
         }
     }
 
-    pub(crate) fn root_hash(&self) -> Blake2bHash {
-        // Recursion depth can not exceed 64
-        fn compute_raw_root_from_proof(
-            index: usize,
-            leaf_count: u64,
-            proof: &[Blake2bHash],
-        ) -> Blake2bHash {
-            if leaf_count == 0 {
-                return SENTINEL2;
-            }
-            if leaf_count == 1 {
-                return proof[0].clone();
-            }
-            let half = 1u64 << (63 - (leaf_count - 1).leading_zeros());
-            let last = proof.len() - 1;
-            if (index as u64) < half {
-                let left = compute_raw_root_from_proof(index, half, &proof[..last]);
-                hash_pair(&left, &proof[last])
+    // The path through a binary Merkle tree to a leaf given the count and the index.
+    // Represented as a u64.  Uses 1 bits to represent going right.
+    fn path_bits(&self) -> u64 {
+        let mut path = 0;
+        let mut n = self.count;
+        let mut i = self.index;
+        while n > 1 {
+            path <<= 1;
+            let pivot = 1u64 << (63 - (n - 1).leading_zeros());
+            if i < pivot {
+                n = pivot;
             } else {
-                let right = compute_raw_root_from_proof(
-                    index - (half as usize),
-                    leaf_count - half,
-                    &proof[..last],
-                );
-                hash_pair(&proof[last], &right)
+                path |= 1;
+                n -= pivot;
+                i -= pivot;
             }
         }
+        path
+    }
 
+    pub(crate) fn root_hash(&self) -> Blake2bHash {
         let IndexedMerkleProof {
-            index,
+            index: _,
             count,
             merkle_proof,
         } = self;
-        let raw_root = compute_raw_root_from_proof(*index as usize, *count, merkle_proof);
+
+        let mut hashes = merkle_proof.into_iter();
+        let raw_root = if let Some(leaf_hash) = hashes.next().cloned() {
+            let mut path = self.path_bits();
+            let mut acc = leaf_hash;
+
+            for hash in hashes {
+                let mut hasher = VarBlake2b::new(Digest::LENGTH).unwrap();
+                if (path & 1) == 1 {
+                    hasher.update(hash);
+                    hasher.update(&acc);
+                } else {
+                    hasher.update(&acc);
+                    hasher.update(hash);
+                }
+                hasher.finalize_variable(|slice| {
+                    acc.0.copy_from_slice(slice);
+                });
+                path >>= 1;
+            }
+            acc
+        } else {
+            SENTINEL2
+        };
+
+        // The Merkle root is the hash of the count with the raw root.
         hash_pair(count.to_le_bytes(), raw_root)
     }
 
@@ -221,12 +245,12 @@ impl IndexedMerkleProof {
         let mut n = self.count;
         let mut i = self.index;
         while n > 1 {
-            let half = 1u64 << (63 - (n - 1).leading_zeros());
-            if i < half {
-                n = half;
+            let pivot = 1u64 << (63 - (n - 1).leading_zeros());
+            if i < pivot {
+                n = pivot;
             } else {
-                n -= half;
-                i -= half;
+                n -= pivot;
+                i -= pivot;
             }
             l += 1;
         }
@@ -283,7 +307,7 @@ fn hash_slice_with_proof(slice: &[Blake2bHash], proof: Blake2bHash) -> Blake2bHa
 
 #[cfg(test)]
 mod test {
-    use proptest::prelude::prop_assert;
+    use proptest::prelude::{prop_assert, prop_assert_eq};
     use proptest_attr_macro::proptest;
     use rand::Rng;
 
@@ -412,5 +436,75 @@ mod test {
             merkle_proof: vec![],
         };
         prop_assert!(indexed_merkle_proof.compute_expected_proof_length() <= 65);
+    }
+
+    fn reference_root_from_proof(index: u64, count: u64, proof: &[Blake2bHash]) -> Blake2bHash {
+        fn compute_raw_root_from_proof(
+            index: u64,
+            leaf_count: u64,
+            proof: &[Blake2bHash],
+        ) -> Blake2bHash {
+            if leaf_count == 0 {
+                return SENTINEL2;
+            }
+            if leaf_count == 1 {
+                return proof[0].clone();
+            }
+            let half = 1u64 << (63 - (leaf_count - 1).leading_zeros());
+            let last = proof.len() - 1;
+            if index < half {
+                let left = compute_raw_root_from_proof(index, half, &proof[..last]);
+                hash_pair(&left, &proof[last])
+            } else {
+                let right =
+                    compute_raw_root_from_proof(index - half, leaf_count - half, &proof[..last]);
+                hash_pair(&proof[last], &right)
+            }
+        }
+
+        let raw_root = compute_raw_root_from_proof(index, count, proof);
+        hash_pair(count.to_le_bytes(), raw_root)
+    }
+
+    /// Construct an `IndexedMerkleProof` with a proof of zero Blake2bHashes.
+    fn test_indexed_merkle_proof(index: u64, count: u64) -> IndexedMerkleProof {
+        let mut indexed_merkle_proof = IndexedMerkleProof {
+            index,
+            count,
+            merkle_proof: vec![],
+        };
+        let expected_proof_length = indexed_merkle_proof.compute_expected_proof_length();
+        indexed_merkle_proof.merkle_proof = std::iter::repeat_with(|| Blake2bHash([0u8; 32]))
+            .take(expected_proof_length as usize)
+            .collect();
+        indexed_merkle_proof
+    }
+
+    #[proptest]
+    fn root_from_proof_agrees_with_recursion(index: u64, count: u64) {
+        let indexed_merkle_proof = test_indexed_merkle_proof(index, count);
+        prop_assert_eq!(
+            indexed_merkle_proof.root_hash(),
+            reference_root_from_proof(
+                indexed_merkle_proof.index,
+                indexed_merkle_proof.count,
+                indexed_merkle_proof.merkle_proof(),
+            ),
+            "Result did not agree with reference implementation.",
+        );
+    }
+
+    #[test]
+    fn root_from_proof_agrees_with_recursion_2147483648_4294967297() {
+        let indexed_merkle_proof = test_indexed_merkle_proof(2147483648, 4294967297);
+        assert_eq!(
+            indexed_merkle_proof.root_hash(),
+            reference_root_from_proof(
+                indexed_merkle_proof.index,
+                indexed_merkle_proof.count,
+                indexed_merkle_proof.merkle_proof(),
+            ),
+            "Result did not agree with reference implementation.",
+        );
     }
 }
