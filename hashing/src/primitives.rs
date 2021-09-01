@@ -169,26 +169,6 @@ impl IndexedMerkleProof {
         }
     }
 
-    // The path through a binary Merkle tree to a leaf given the count and the index.
-    // Represented as a u64.  Uses 1 bits to represent going right.
-    fn path_bits(&self) -> u64 {
-        let mut path = 0;
-        let mut n = self.count;
-        let mut i = self.index;
-        while n > 1 {
-            path <<= 1;
-            let pivot = 1u64 << (63 - (n - 1).leading_zeros());
-            if i < pivot {
-                n = pivot;
-            } else {
-                path |= 1;
-                n -= pivot;
-                i -= pivot;
-            }
-        }
-        path
-    }
-
     pub(crate) fn root_hash(&self) -> Blake2bHash {
         let IndexedMerkleProof {
             index: _,
@@ -198,7 +178,25 @@ impl IndexedMerkleProof {
 
         let mut hashes = merkle_proof.into_iter();
         let raw_root = if let Some(leaf_hash) = hashes.next().cloned() {
-            let mut path = self.path_bits();
+            // Compute whether to hash left or right for the elements of the Merkle proof.
+            // This gives a path to the value with the specified index.
+            // We represent this path as a sequence of 64 bits. 1 here means "hash right".
+            let mut path: u64 = 0;
+            let mut n = self.count;
+            let mut i = self.index;
+            while n > 1 {
+                path <<= 1;
+                let pivot = 1u64 << (63 - (n - 1).leading_zeros());
+                if i < pivot {
+                    n = pivot;
+                } else {
+                    path |= 1;
+                    n -= pivot;
+                    i -= pivot;
+                }
+            }
+
+            // Compute the raw Merkle root by hashing the proof from leaf hash up.
             let mut acc = leaf_hash;
 
             for hash in hashes {
