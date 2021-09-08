@@ -15,7 +15,7 @@ impl ChunkWithProof {
         if data.len() < Self::CHUNK_SIZE * (index as usize) {
             return Err(todo!());
         }
-        // TODO: empty data as zero chunks
+        // TODO: empty data as chunks of empty slices
         let proof =
             IndexedMerkleProof::new(data.chunks(Self::CHUNK_SIZE).map(blake2b_hash), index)?;
         let chunk = data[Self::CHUNK_SIZE * (index as usize)
@@ -28,4 +28,5 @@ impl ChunkWithProof {
 #[cfg(test)]
 mod test {
     // TODO: test empty chunk
+    // Make proptests to make sure that ChunkWithProof agrees with hash_merkle_tree of the chunked data
 }
