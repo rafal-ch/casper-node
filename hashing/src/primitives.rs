@@ -85,7 +85,7 @@ fn hash_pair<T: AsRef<[u8]>, U: AsRef<[u8]>>(data1: T, data2: U) -> Blake2bHash 
 ///
 /// [1]: https://en.wikipedia.org/wiki/Merkle_tree
 /// [2]: https://en.wikipedia.org/wiki/Graph_reduction
-fn hash_merkle_tree<I>(leaves: I) -> Blake2bHash
+pub(crate) fn hash_merkle_tree<I>(leaves: I) -> Blake2bHash
 where
     I: IntoIterator<Item = Blake2bHash>,
 {
