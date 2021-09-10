@@ -49,14 +49,23 @@ impl<const N: usize> ChunkWithProof<N> {
 
     pub fn new(data: &[u8], index: u64) -> Result<Self, MerkleConstructionError> {
         if data.len() < Self::CHUNK_SIZE * (index as usize) {
-            return Err(todo!());
+            return Err(MerkleConstructionError::IndexOutOfBounds {
+                count: data.chunks(Self::CHUNK_SIZE).len() as u64,
+                index,
+            });
         }
-        // TODO: empty data as chunks of empty slices
-        let proof =
-            IndexedMerkleProof::new(data.chunks(Self::CHUNK_SIZE).map(blake2b_hash), index)?;
-        let chunk = data[Self::CHUNK_SIZE * (index as usize)
-            ..data.len().min(Self::CHUNK_SIZE * ((index as usize) + 1))]
-            .to_vec();
+
+        let (proof, chunk) = if data.is_empty() {
+            (IndexedMerkleProof::new([blake2b_hash(&[])], index)?, vec![])
+        } else {
+            (
+                IndexedMerkleProof::new(data.chunks(Self::CHUNK_SIZE).map(blake2b_hash), index)?,
+                data[Self::CHUNK_SIZE * (index as usize)
+                    ..data.len().min(Self::CHUNK_SIZE * ((index as usize) + 1))]
+                    .to_vec(),
+            )
+        };
+
         Ok(ChunkWithProof { proof, chunk })
     }
 
@@ -77,7 +86,6 @@ impl<const N: usize> ChunkWithProof<N> {
 
 #[cfg(test)]
 mod test {
-    // TODO: test empty chunk
     // Make proptests to make sure that ChunkWithProof agrees with hash_merkle_tree of the chunked
     // data
 
@@ -88,7 +96,8 @@ mod test {
 
     use crate::{
         chunk::ChunkWithProof,
-        primitives::{blake2b_hash, hash_merkle_tree, Blake2bHash, IndexedMerkleProof},
+        primitives::{blake2b_hash, hash_merkle_tree},
+        MerkleConstructionError,
     };
 
     fn prepare_bytes(length: usize) -> Vec<u8> {
@@ -172,5 +181,34 @@ mod test {
         let json = serde_json::to_string(&chunk_with_incorrect_proof).unwrap();
         serde_json::from_str::<ChunkWithProof<CHUNK_SIZE>>(&json)
             .expect_err("shoud not deserialize correctly");
+    }
+
+    #[test]
+    fn returns_error_on_incorrect_index() {
+        let chunk_with_proof =
+            ChunkWithProof::<CHUNK_SIZE>::new(&[], 0).expect("should create with empty data");
+        assert!(chunk_with_proof.is_valid());
+
+        let chunk_with_proof = ChunkWithProof::<CHUNK_SIZE>::new(&[], 1)
+            .expect_err("should error with empty data and index > 0");
+        if let MerkleConstructionError::IndexOutOfBounds { count, index } = chunk_with_proof {
+            assert_eq!(count, 0);
+            assert_eq!(index, 1);
+        } else {
+            panic!("expected MerkleConstructionError::IndexOutOfBounds");
+        }
+
+        let large_data_size = (CHUNK_SIZE * 10) as usize;
+        let large_data = prepare_bytes(large_data_size);
+        ChunkWithProof::<CHUNK_SIZE>::new(large_data.as_slice(), 9).unwrap();
+
+        let chunk_with_proof =
+            ChunkWithProof::<CHUNK_SIZE>::new(large_data.as_slice(), 10).unwrap_err();
+        if let MerkleConstructionError::IndexOutOfBounds { count, index } = chunk_with_proof {
+            assert_eq!(count, 10);
+            assert_eq!(index, 10);
+        } else {
+            panic!("expected MerkleConstructionError::IndexOutOfBounds");
+        }
     }
 }
