@@ -22,6 +22,11 @@ use crate::{Digest, MerkleConstructionError, MerkleVerificationError};
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/rfc7693
 #[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(
+    feature = "std",
+    derive(schemars::JsonSchema, serde::Serialize, serde::Deserialize,),
+    serde(deny_unknown_fields)
+)]
 pub(super) struct Blake2bHash([u8; Digest::LENGTH]);
 
 impl AsRef<[u8]> for Blake2bHash {
@@ -106,6 +111,11 @@ where
     hash_pair(leaf_count_bytes, raw_root)
 }
 
+#[cfg_attr(
+    feature = "std",
+    derive(Debug, schemars::JsonSchema, serde::Serialize, serde::Deserialize,),
+    serde(deny_unknown_fields)
+)]
 pub struct IndexedMerkleProof {
     index: u64,
     count: u64,
@@ -231,6 +241,11 @@ impl IndexedMerkleProof {
 
     pub(crate) fn merkle_proof(&self) -> &[Blake2bHash] {
         &self.merkle_proof
+    }
+
+    #[cfg(test)]
+    pub(crate) fn inject_merkle_proof(&mut self, merkle_proof: Vec<Blake2bHash>) {
+        self.merkle_proof = merkle_proof;
     }
 
     // Proof lengths are never bigger than 65, so we can use a u8 here

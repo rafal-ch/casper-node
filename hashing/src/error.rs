@@ -26,4 +26,6 @@ pub enum MerkleConstructionError {
         "Could not construct Merkle proof. Index out of bounds.  Count: {count}, index: {index}"
     )]
     IndexOutOfBounds { count: u64, index: u64 },
+    #[error("The chunk has incorrect proof")]
+    IncorrectChunkProof,
 }
