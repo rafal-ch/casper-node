@@ -62,9 +62,11 @@ impl<const N: usize> ChunkWithProof<N> {
 
     pub fn is_valid(&self) -> bool {
         let chunk_hash = blake2b_hash(self.chunk());
-        let first_hash = &self.proof.merkle_proof()[0];
-
-        chunk_hash == *first_hash
+        self.proof
+            .merkle_proof()
+            .iter()
+            .next()
+            .map_or(false, |first_hash| chunk_hash == *first_hash)
     }
 
     /// Get a reference to the chunk with proof's chunk.
