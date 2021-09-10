@@ -113,7 +113,13 @@ where
 
 #[cfg_attr(
     feature = "std",
-    derive(Debug, schemars::JsonSchema, serde::Serialize, serde::Deserialize,),
+    derive(
+        PartialEq,
+        Debug,
+        schemars::JsonSchema,
+        serde::Serialize,
+        serde::Deserialize,
+    ),
     serde(deny_unknown_fields)
 )]
 pub struct IndexedMerkleProof {

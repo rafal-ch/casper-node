@@ -7,14 +7,17 @@ use crate::{
 
 #[cfg_attr(
     feature = "std",
-    derive(Debug, schemars::JsonSchema, serde::Serialize, serde::Deserialize),
+    derive(
+        PartialEq,
+        Debug,
+        schemars::JsonSchema,
+        serde::Serialize,
+        serde::Deserialize
+    ),
     schemars(with = "String", description = "Hex-encoded hash digest."),
-    serde(
-        deny_unknown_fields,
-        try_from = "ChunkWithProofDeserializeValidator<N>"
-    )
+    serde(deny_unknown_fields, try_from = "ChunkWithProofDeserializeValidator")
 )]
-pub struct ChunkWithProof<const N: usize> {
+pub struct ChunkWithProof {
     proof: IndexedMerkleProof,
     chunk: Vec<u8>,
 }
@@ -24,14 +27,14 @@ pub struct ChunkWithProof<const N: usize> {
     derive(serde::Deserialize),
     serde(deny_unknown_fields)
 )]
-pub struct ChunkWithProofDeserializeValidator<const N: usize> {
+pub struct ChunkWithProofDeserializeValidator {
     proof: IndexedMerkleProof,
     chunk: Vec<u8>,
 }
 
-impl<const N: usize> TryFrom<ChunkWithProofDeserializeValidator<N>> for ChunkWithProof<N> {
+impl TryFrom<ChunkWithProofDeserializeValidator> for ChunkWithProof {
     type Error = MerkleConstructionError;
-    fn try_from(value: ChunkWithProofDeserializeValidator<N>) -> Result<Self, Self::Error> {
+    fn try_from(value: ChunkWithProofDeserializeValidator) -> Result<Self, Self::Error> {
         let candidate = Self {
             proof: value.proof,
             chunk: value.chunk,
@@ -44,8 +47,12 @@ impl<const N: usize> TryFrom<ChunkWithProofDeserializeValidator<N>> for ChunkWit
     }
 }
 
-impl<const N: usize> ChunkWithProof<N> {
-    pub const CHUNK_SIZE: usize = N;
+impl ChunkWithProof {
+    #[cfg(test)]
+    pub const CHUNK_SIZE: usize = 10;
+
+    #[cfg(not(test))]
+    pub const CHUNK_SIZE: usize = 1_048_576; // 2^20
 
     pub fn new(data: &[u8], index: u64) -> Result<Self, MerkleConstructionError> {
         if data.len() < Self::CHUNK_SIZE * (index as usize) {
@@ -69,12 +76,11 @@ impl<const N: usize> ChunkWithProof<N> {
         Ok(ChunkWithProof { proof, chunk })
     }
 
-    pub fn is_valid(&self) -> bool {
+    fn is_valid(&self) -> bool {
         let chunk_hash = blake2b_hash(self.chunk());
         self.proof
             .merkle_proof()
-            .iter()
-            .next()
+            .first()
             .map_or(false, |first_hash| chunk_hash == *first_hash)
     }
 
@@ -86,8 +92,7 @@ impl<const N: usize> ChunkWithProof<N> {
 
 #[cfg(test)]
 mod test {
-    // Make proptests to make sure that ChunkWithProof agrees with hash_merkle_tree of the chunked
-    // data
+    // TODO: Turn these into proptest!
 
     const CHUNK_SIZE: usize = 10;
 
@@ -110,15 +115,18 @@ mod test {
 
     #[test]
     fn generates_correct_proof() {
-        let large_data_size = (CHUNK_SIZE * 1024) as usize;
-        let large_data = prepare_bytes(large_data_size);
+        let data_larger_than_single_chunk = prepare_bytes((CHUNK_SIZE * 1024) as usize);
 
-        let number_of_chunks: u64 = large_data.chunks(CHUNK_SIZE).len().try_into().unwrap();
+        let number_of_chunks: u64 = data_larger_than_single_chunk
+            .chunks(CHUNK_SIZE)
+            .len()
+            .try_into()
+            .unwrap();
 
         assert!(!(0..number_of_chunks)
             .into_iter()
             .map(|chunk_index| {
-                ChunkWithProof::<CHUNK_SIZE>::new(large_data.as_slice(), chunk_index).unwrap()
+                ChunkWithProof::new(data_larger_than_single_chunk.as_slice(), chunk_index).unwrap()
             })
             .map(|chunk_with_proof| chunk_with_proof.is_valid())
             .any(|valid| !valid));
@@ -133,11 +141,11 @@ mod test {
         let ChunkWithProof {
             proof: proof_0,
             chunk: _,
-        } = ChunkWithProof::<CHUNK_SIZE>::new(data.as_slice(), 0).unwrap();
+        } = ChunkWithProof::new(data.as_slice(), 0).unwrap();
         let ChunkWithProof {
             proof: proof_1,
             chunk: _,
-        } = ChunkWithProof::<CHUNK_SIZE>::new(data.as_slice(), 1).unwrap();
+        } = ChunkWithProof::new(data.as_slice(), 1).unwrap();
 
         assert_eq!(proof_0.root_hash(), expected_root);
         assert_eq!(proof_1.root_hash(), expected_root);
@@ -145,10 +153,9 @@ mod test {
 
     #[test]
     fn validates_chunk_with_proofs() {
-        let large_data_size = (CHUNK_SIZE * 2) as usize;
-        let large_data = prepare_bytes(large_data_size);
+        let data_larger_than_single_chunk = prepare_bytes((CHUNK_SIZE * 2) as usize);
 
-        impl<const N: usize> ChunkWithProof<N> {
+        impl ChunkWithProof {
             fn replace_first_proof(self) -> Self {
                 let ChunkWithProof { mut proof, chunk } = self;
 
@@ -160,7 +167,8 @@ mod test {
             }
         }
 
-        let chunk_with_proof = ChunkWithProof::<CHUNK_SIZE>::new(large_data.as_slice(), 0).unwrap();
+        let chunk_with_proof =
+            ChunkWithProof::new(data_larger_than_single_chunk.as_slice(), 0).unwrap();
         assert!(chunk_with_proof.is_valid());
 
         let chunk_with_incorrect_proof = chunk_with_proof.replace_first_proof();
@@ -169,28 +177,28 @@ mod test {
 
     #[test]
     fn validates_chunk_with_proof_after_deserialization() {
-        let large_data_size = (CHUNK_SIZE * 2) as usize;
-        let large_data = prepare_bytes(large_data_size);
-        let chunk_with_proof = ChunkWithProof::<CHUNK_SIZE>::new(large_data.as_slice(), 0).unwrap();
+        let data_larger_than_single_chunk = prepare_bytes((CHUNK_SIZE * 2) as usize);
+        let chunk_with_proof =
+            ChunkWithProof::new(data_larger_than_single_chunk.as_slice(), 0).unwrap();
 
         let json = serde_json::to_string(&chunk_with_proof).unwrap();
-        serde_json::from_str::<ChunkWithProof<CHUNK_SIZE>>(&json)
-            .expect("should deserialize correctly");
+        assert_eq!(
+            chunk_with_proof,
+            serde_json::from_str::<ChunkWithProof>(&json).expect("should deserialize correctly")
+        );
 
         let chunk_with_incorrect_proof = chunk_with_proof.replace_first_proof();
         let json = serde_json::to_string(&chunk_with_incorrect_proof).unwrap();
-        serde_json::from_str::<ChunkWithProof<CHUNK_SIZE>>(&json)
-            .expect_err("shoud not deserialize correctly");
+        serde_json::from_str::<ChunkWithProof>(&json).expect_err("shoud not deserialize correctly");
     }
 
     #[test]
     fn returns_error_on_incorrect_index() {
-        let chunk_with_proof =
-            ChunkWithProof::<CHUNK_SIZE>::new(&[], 0).expect("should create with empty data");
+        let chunk_with_proof = ChunkWithProof::new(&[], 0).expect("should create with empty data");
         assert!(chunk_with_proof.is_valid());
 
-        let chunk_with_proof = ChunkWithProof::<CHUNK_SIZE>::new(&[], 1)
-            .expect_err("should error with empty data and index > 0");
+        let chunk_with_proof =
+            ChunkWithProof::new(&[], 1).expect_err("should error with empty data and index > 0");
         if let MerkleConstructionError::IndexOutOfBounds { count, index } = chunk_with_proof {
             assert_eq!(count, 0);
             assert_eq!(index, 1);
@@ -198,12 +206,11 @@ mod test {
             panic!("expected MerkleConstructionError::IndexOutOfBounds");
         }
 
-        let large_data_size = (CHUNK_SIZE * 10) as usize;
-        let large_data = prepare_bytes(large_data_size);
-        ChunkWithProof::<CHUNK_SIZE>::new(large_data.as_slice(), 9).unwrap();
+        let data_larger_than_single_chunk = prepare_bytes((CHUNK_SIZE * 10) as usize);
+        ChunkWithProof::new(data_larger_than_single_chunk.as_slice(), 9).unwrap();
 
         let chunk_with_proof =
-            ChunkWithProof::<CHUNK_SIZE>::new(large_data.as_slice(), 10).unwrap_err();
+            ChunkWithProof::new(data_larger_than_single_chunk.as_slice(), 10).unwrap_err();
         if let MerkleConstructionError::IndexOutOfBounds { count, index } = chunk_with_proof {
             assert_eq!(count, 10);
             assert_eq!(index, 10);
