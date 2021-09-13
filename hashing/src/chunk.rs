@@ -7,23 +7,6 @@ use crate::{
 
 #[cfg_attr(
     feature = "std",
-    derive(
-        PartialEq,
-        Debug,
-        schemars::JsonSchema,
-        serde::Serialize,
-        serde::Deserialize
-    ),
-    schemars(with = "String", description = "Hex-encoded hash digest."),
-    serde(deny_unknown_fields, try_from = "ChunkWithProofDeserializeValidator")
-)]
-pub struct ChunkWithProof {
-    proof: IndexedMerkleProof,
-    chunk: Vec<u8>,
-}
-
-#[cfg_attr(
-    feature = "std",
     derive(serde::Deserialize),
     serde(deny_unknown_fields)
 )]
@@ -45,6 +28,23 @@ impl TryFrom<ChunkWithProofDeserializeValidator> for ChunkWithProof {
             Err(MerkleConstructionError::IncorrectChunkProof)
         }
     }
+}
+
+#[cfg_attr(
+    feature = "std",
+    derive(
+        PartialEq,
+        Debug,
+        schemars::JsonSchema,
+        serde::Serialize,
+        serde::Deserialize
+    ),
+    schemars(with = "String", description = "Hex-encoded hash digest."),
+    serde(deny_unknown_fields, try_from = "ChunkWithProofDeserializeValidator")
+)]
+pub struct ChunkWithProof {
+    proof: IndexedMerkleProof,
+    chunk: Vec<u8>,
 }
 
 impl ChunkWithProof {

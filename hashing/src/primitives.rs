@@ -7,6 +7,7 @@
 
 #[cfg(not(feature = "std"))]
 pub use alloc::vec::Vec;
+use std::convert::TryFrom;
 #[cfg(feature = "std")]
 pub use std::vec::Vec;
 
@@ -113,6 +114,35 @@ where
 
 #[cfg_attr(
     feature = "std",
+    derive(serde::Deserialize,),
+    serde(deny_unknown_fields)
+)]
+pub struct IndexedMerkleProofDeserializeValidator {
+    index: u64,
+    count: u64,
+    merkle_proof: Vec<Blake2bHash>,
+}
+
+impl TryFrom<IndexedMerkleProofDeserializeValidator> for IndexedMerkleProof {
+    type Error = MerkleConstructionError;
+    fn try_from(value: IndexedMerkleProofDeserializeValidator) -> Result<Self, Self::Error> {
+        let candidate = Self {
+            index: value.index,
+            count: value.count,
+            merkle_proof: value.merkle_proof,
+        };
+
+        if candidate.index > candidate.count
+            || candidate.merkle_proof.len() as u64 != candidate.compute_expected_proof_length()
+        {
+            return Err(MerkleConstructionError::IncorrectIndexedMerkleProof);
+        }
+        Ok(candidate)
+    }
+}
+
+#[cfg_attr(
+    feature = "std",
     derive(
         PartialEq,
         Debug,
@@ -120,7 +150,10 @@ where
         serde::Serialize,
         serde::Deserialize,
     ),
-    serde(deny_unknown_fields)
+    serde(
+        deny_unknown_fields,
+        try_from = "IndexedMerkleProofDeserializeValidator"
+    )
 )]
 pub struct IndexedMerkleProof {
     index: u64,
@@ -525,5 +558,31 @@ mod test {
             ),
             "Result did not agree with reference implementation.",
         );
+    }
+
+    #[test]
+    fn validates_indexed_merkle_proof_after_deserialization() {
+        let indexed_merkle_proof = test_indexed_merkle_proof(10, 10);
+
+        let json = serde_json::to_string(&indexed_merkle_proof).unwrap();
+        assert_eq!(
+            indexed_merkle_proof,
+            serde_json::from_str::<IndexedMerkleProof>(&json)
+                .expect("should deserialize correctly")
+        );
+
+        // Check that proof with index greated than count fails to deserialize
+        let mut indexed_merkle_proof = test_indexed_merkle_proof(10, 10);
+        indexed_merkle_proof.index += 1;
+        let json = serde_json::to_string(&indexed_merkle_proof).unwrap();
+        serde_json::from_str::<IndexedMerkleProof>(&json)
+            .expect_err("shoud not deserialize correctly");
+
+        // Check that proof with incorrect length fails to deserialize
+        let mut indexed_merkle_proof = test_indexed_merkle_proof(10, 10);
+        indexed_merkle_proof.merkle_proof.push(blake2b_hash("XXX"));
+        let json = serde_json::to_string(&indexed_merkle_proof).unwrap();
+        serde_json::from_str::<IndexedMerkleProof>(&json)
+            .expect_err("shoud not deserialize correctly");
     }
 }
