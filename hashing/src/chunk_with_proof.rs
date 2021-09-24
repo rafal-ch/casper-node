@@ -75,11 +75,9 @@ impl ChunkWithProof {
     #[cfg(test)]
     pub const CHUNK_SIZE: usize = 1;
 
-    // TODO[RC]: Uncomment when the `ChunkWithProof` is actually used in the code
-    // #[cfg(not(test))]
-    // pub const CHUNK_SIZE: usize = 1_048_576; // 2^20
+    #[cfg(not(test))]
+    pub const CHUNK_SIZE: usize = 1_048_576; // 2^20
 
-    #[cfg(test)]
     pub fn new(data: &[u8], index: u64) -> Result<Self, error::MerkleConstructionError> {
         if data.len() < Self::CHUNK_SIZE * (index as usize) {
             return Err(error::MerkleConstructionError::IndexOutOfBounds {

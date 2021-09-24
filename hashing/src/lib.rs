@@ -22,6 +22,7 @@ use blake2::{
     digest::{Update, VariableOutput},
     VarBlake2b,
 };
+use chunk_with_proof::ChunkWithProof;
 use datasize::DataSize;
 use hex_buffer_serde::{Hex, HexForm};
 use itertools::Itertools;
@@ -64,14 +65,32 @@ impl Digest {
     /// Sentinel hash to be used by `hash_merkle_tree` in the case of an empty list.
     pub const SENTINEL_MERKLE_TREE: Digest = Digest([2u8; Digest::LENGTH]);
 
-    /// Creates a 32-byte BLAKE2b hash digest from a given a piece of data
+    /// Creates a 32-byte hash digest from a given a piece of data
     pub fn hash<T: AsRef<[u8]>>(data: T) -> Digest {
+        if Self::should_hash_with_chunks(&data) {
+            todo!()
+        } else {
+            Self::hash_without_chunks(data)
+        }
+    }
+
+    fn should_hash_with_chunks<T: AsRef<[u8]>>(data: T) -> bool {
+        data.as_ref().len() > ChunkWithProof::CHUNK_SIZE
+    }
+
+    /// Creates a 32-byte BLAKE2b hash digest from a given a piece of data
+    fn hash_without_chunks<T: AsRef<[u8]>>(data: T) -> Digest {
         let mut ret = [0u8; Digest::LENGTH];
         // NOTE: Safe to unwrap here because our digest length is constant and valid
         let mut hasher = VarBlake2b::new(Digest::LENGTH).unwrap();
         hasher.update(data);
         hasher.finalize_variable(|hash| ret.clone_from_slice(hash));
         Digest(ret)
+    }
+
+    fn hash_with_chunks<T: AsRef<[u8]>>(data: T) -> Digest {
+        let chunk_with_proof = ChunkWithProof::new(data.as_ref(), 0).unwrap();
+        todo!()
     }
 
     /// Hashes a pair of byte slices.
@@ -467,6 +486,21 @@ mod test {
         assert_eq!(
             hash_lower_hex,
             "aae1660ca492ed9af6b2ead22f88b390aeb2ec0719654824d084aa6c6553ceeb"
+        );
+    }
+
+    #[test]
+    fn picks_correct_hashing_method() {
+        let data_smaller_than_chunk_size = vec![];
+        assert_eq!(
+            false,
+            Digest::should_hash_with_chunks(data_smaller_than_chunk_size)
+        );
+
+        let data_bigger_than_chunk_size = vec![0; ChunkWithProof::CHUNK_SIZE * 2];
+        assert_eq!(
+            true,
+            Digest::should_hash_with_chunks(data_bigger_than_chunk_size)
         );
     }
 }
