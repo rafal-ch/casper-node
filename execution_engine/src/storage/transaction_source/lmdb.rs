@@ -88,6 +88,9 @@ impl LmdbEnvironment {
             EnvironmentFlags::NO_SUB_DIR
         };
 
+        let db_path = &path.as_ref().join(EE_DB_FILENAME);
+        dbg!(&db_path);
+
         let env = Environment::new()
             // Set the flag to manage our own directory like in the storage component.
             .set_flags(lmdb_flags)
