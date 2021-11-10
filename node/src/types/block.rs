@@ -317,7 +317,9 @@ impl DocExample for EraReport {
 
 /// The piece of information that will become the content of a future block after it was finalized
 /// and before execution happened yet.
-#[derive(Clone, DataSize, Debug, PartialOrd, Ord, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, DataSize, Default, Debug, PartialOrd, Ord, PartialEq, Eq, Hash, Serialize, Deserialize,
+)]
 pub struct FinalizedBlock {
     deploy_hashes: Vec<DeployHash>,
     transfer_hashes: Vec<DeployHash>,

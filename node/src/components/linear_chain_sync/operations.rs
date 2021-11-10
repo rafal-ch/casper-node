@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use num::rational::Ratio;
-use tracing::{info, trace, warn};
+use tracing::{error, info, trace, warn};
 
 use casper_execution_engine::storage::trie::Trie;
 use casper_hashing::Digest;
@@ -428,9 +428,12 @@ fn check_block_version(
         );
     }
 
-    if is_current_era(header, trusted_key_block_info, chainspec)
-        && header.protocol_version() < current_version
-    {
+    if current_block_header_has_old_version(
+        header,
+        trusted_key_block_info,
+        chainspec,
+        current_version,
+    ) {
         return Err(LinearChainSyncError::CurrentBlockHeaderHasOldVersion {
             current_version,
             block_header_with_old_version: Box::new(header.clone()),
@@ -438,6 +441,43 @@ fn check_block_version(
     }
 
     Ok(())
+}
+
+fn current_block_header_has_old_version(
+    header: &BlockHeader,
+    trusted_key_block_info: &KeyBlockInfo,
+    chainspec: &Chainspec,
+    current_version: casper_types::ProtocolVersion,
+) -> bool {
+    error!(
+        "    QQQQQ is_current_era = {}",
+        is_current_era(header, trusted_key_block_info, chainspec)
+    );
+    error!(
+        "    QQQQQ header.protocol_version() = {}",
+        header.protocol_version()
+    );
+    error!("    QQQQQ current_version = {}", current_version);
+    error!(
+        "    QQQQQ header.next_block_era_id() = {}",
+        header.next_block_era_id()
+    );
+    error!(
+        "    QQQQQ chainspec.protocol_config.activation_point.era_id() = {}",
+        chainspec.protocol_config.activation_point.era_id()
+    );
+    error!(
+        "    QQQQQ !header.is_switch_block() = {}",
+        !header.is_switch_block()
+    );
+
+    let result = is_current_era(header, trusted_key_block_info, chainspec)
+        && header.protocol_version() < current_version
+        && (header.next_block_era_id() != chainspec.protocol_config.activation_point.era_id()
+            || !header.is_switch_block());
+
+    error!("  QQQQQ result = {}", result);
+    result
 }
 
 /// Queries all of the peers for a trie, puts the trie found from the network in the trie-store, and

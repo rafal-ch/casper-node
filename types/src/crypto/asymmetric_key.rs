@@ -194,6 +194,12 @@ pub enum PublicKey {
     Secp256k1(Secp256k1PublicKey),
 }
 
+impl Default for PublicKey {
+    fn default() -> Self {
+        PublicKey::System
+    }
+}
+
 impl PublicKey {
     /// The length in bytes of a system public key.
     pub const SYSTEM_LENGTH: usize = 0;
