@@ -750,6 +750,11 @@ impl reactor::Reactor for Reactor {
             *protocol_version,
             chainspec_loader.chainspec().core_config.auction_delay,
             chainspec_loader.chainspec().core_config.unbonding_delay,
+            chainspec_loader
+                .chainspec()
+                .highway_config
+                .finality_threshold_fraction,
+            maybe_next_activation_point,
         )?;
 
         effects.extend(reactor::wrap_effects(
@@ -1242,6 +1247,10 @@ impl reactor::Reactor for Reactor {
                     consensus::Event::GotUpgradeActivationPoint(next_upgrade.activation_point()),
                 );
                 effects.extend(self.dispatch_event(effect_builder, rng, reactor_event));
+                let reactor_event = ParticipatingEvent::LinearChain(
+                    linear_chain::Event::GotUpgradeActivationPoint(next_upgrade.activation_point()),
+                );
+                effects.extend(self.dispatch_event(effect_builder, rng, reactor_event));
                 effects
             }
             ParticipatingEvent::BlocklistAnnouncement(ann) => self.dispatch_event(
@@ -1264,7 +1273,7 @@ impl reactor::Reactor for Reactor {
     }
 
     fn maybe_exit(&self) -> Option<ReactorExit> {
-        self.consensus
+        self.linear_chain
             .stop_for_upgrade()
             .then(|| ReactorExit::ProcessShouldExit(ExitCode::Success))
     }
