@@ -1203,26 +1203,6 @@ where
         let payment = deploy_item.payment;
         let deploy_hash = deploy_item.deploy_hash;
 
-        // Create session code `A` from provided session bytes
-        // validation_spec_1: valid wasm bytes
-        // we do this upfront as there is no reason to continue if session logic is invalid
-        let system_contract_registry =
-            self.get_system_contract_registry(correlation_id, prestate_hash)?;
-        let session_metadata = match session.get_deploy_metadata(
-            Rc::clone(&tracking_copy),
-            &account,
-            correlation_id,
-            &preprocessor,
-            &protocol_version,
-            system_contract_registry,
-            Phase::Session,
-        ) {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                return Ok(ExecutionResult::precondition_failure(error));
-            }
-        };
-
         // Get account main purse balance key
         // validation_spec_5: account main purse minimum balance
         let account_main_purse_balance_key: Key = {
@@ -1258,6 +1238,15 @@ where
             ));
         }
 
+        let payment_gas_limit = match Gas::from_motes(max_payment_cost, deploy_item.gas_price) {
+            Some(gas) => gas,
+            None => {
+                return Ok(ExecutionResult::precondition_failure(
+                    Error::GasConversionOverflow,
+                ))
+            }
+        };
+
         // Finalization is executed by system account (currently genesis account)
         // payment_code_spec_5: system executes finalization
         let system_account = Account::new(
@@ -1268,6 +1257,65 @@ where
             Default::default(),
         );
 
+        // the proposer of the block this deploy is in receives the gas from this deploy execution
+        let proposer_purse = {
+            let proposer_account: Account = match tracking_copy
+                .borrow_mut()
+                .get_account(correlation_id, AccountHash::from(&proposer))
+            {
+                Ok(account) => account,
+                Err(error) => {
+                    return Ok(ExecutionResult::precondition_failure(error.into()));
+                }
+            };
+            proposer_account.main_purse()
+        };
+
+        let proposer_main_purse_balance_key = {
+            // Get reward purse Key from handle payment contract
+            // payment_code_spec_6: system contract validity
+            match tracking_copy
+                .borrow_mut()
+                .get_purse_balance_key(correlation_id, proposer_purse.into())
+            {
+                Ok(key) => key,
+                Err(error) => {
+                    return Ok(ExecutionResult::precondition_failure(error.into()));
+                }
+            }
+        };
+
+        // Create session code `A` from provided session bytes
+        // validation_spec_1: valid wasm bytes
+        // we do this upfront as there is no reason to continue if session logic is invalid
+        let system_contract_registry =
+            self.get_system_contract_registry(correlation_id, prestate_hash)?;
+        let session_metadata = match session.get_deploy_metadata(
+            Rc::clone(&tracking_copy),
+            &account,
+            correlation_id,
+            &preprocessor,
+            &protocol_version,
+            system_contract_registry,
+            Phase::Session,
+        ) {
+            Ok(metadata) => metadata,
+            Err(error @ Error::WasmPreprocessing(_)) => {
+                match ExecutionResult::new_payment_code_error(
+                    error,
+                    max_payment_cost,
+                    account_main_purse_balance,
+                    payment_gas_limit,
+                    account_main_purse_balance_key,
+                    proposer_main_purse_balance_key,
+                ) {
+                    Ok(execution_result) => return Ok(execution_result),
+                    Err(error) => return Ok(ExecutionResult::precondition_failure(error)),
+                }
+            }
+            Err(error) => return Ok(ExecutionResult::precondition_failure(error)),
+        };
+
         // [`ExecutionResultBuilder`] handles merging of multiple execution results
         let mut execution_result_builder = execution_result::ExecutionResultBuilder::new();
 
@@ -1275,14 +1323,6 @@ where
         let payment_result = {
             // payment_code_spec_1: init pay environment w/ gas limit == (max_payment_cost /
             // gas_price)
-            let payment_gas_limit = match Gas::from_motes(max_payment_cost, deploy_item.gas_price) {
-                Some(gas) => gas,
-                None => {
-                    return Ok(ExecutionResult::precondition_failure(
-                        Error::GasConversionOverflow,
-                    ))
-                }
-            };
 
             let system_contract_registry = tracking_copy
                 .borrow_mut()
@@ -1414,34 +1454,6 @@ where
                 .get_purse_balance(correlation_id, purse_balance_key)
             {
                 Ok(balance) => balance,
-                Err(error) => {
-                    return Ok(ExecutionResult::precondition_failure(error.into()));
-                }
-            }
-        };
-
-        // the proposer of the block this deploy is in receives the gas from this deploy execution
-        let proposer_purse = {
-            let proposer_account: Account = match tracking_copy
-                .borrow_mut()
-                .get_account(correlation_id, AccountHash::from(&proposer))
-            {
-                Ok(account) => account,
-                Err(error) => {
-                    return Ok(ExecutionResult::precondition_failure(error.into()));
-                }
-            };
-            proposer_account.main_purse()
-        };
-
-        let proposer_main_purse_balance_key = {
-            // Get reward purse Key from handle payment contract
-            // payment_code_spec_6: system contract validity
-            match tracking_copy
-                .borrow_mut()
-                .get_purse_balance_key(correlation_id, proposer_purse.into())
-            {
-                Ok(key) => key,
                 Err(error) => {
                     return Ok(ExecutionResult::precondition_failure(error.into()));
                 }
