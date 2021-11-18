@@ -52,6 +52,8 @@ unbonding_delay = 7
 round_seigniorage_rate = [7, 87535408]
 # Maximum number of associated keys for a single account.
 max_associated_keys = 100
+# Maximum size in bytes of the data that can be hashed without being split into chunks.
+hash_chunk_size = 1048576
 
 [highway]
 # A number between 0 and 1 representing the fault tolerance threshold as a fraction, used by the internal finalizer.

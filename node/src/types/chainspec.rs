@@ -68,6 +68,10 @@ pub struct Chainspec {
 impl Chainspec {
     /// Returns `false` and logs errors if the values set in the config don't make sense.
     pub(crate) fn is_valid(&self) -> bool {
+        if self.core_config.hash_chunk_size * 3 >= self.network_config.maximum_net_message_size {
+            warn!("maximum_net_message_size is less than hash_chunk_size * 3!");
+        }
+
         let min_era_ms = 1u64 << self.highway_config.minimum_round_exponent;
         // If the era duration is set to zero, we will treat it as explicitly stating that eras
         // should be defined by height only.

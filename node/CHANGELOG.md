@@ -12,6 +12,8 @@ All notable changes to this project will be documented in this file.  The format
 
 ## [Unreleased]
 
+### Added
+* Add `[core][hash_chunk_size]` field to the chainspec for use by fast sync data chunking mechanism.
 
 ## [1.4.2] - 2021-11-11
 

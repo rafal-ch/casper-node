@@ -30,6 +30,8 @@ pub struct CoreConfig {
     pub(crate) round_seigniorage_rate: Ratio<u64>,
     /// Maximum number of associated keys for a single account.
     pub(crate) max_associated_keys: u32,
+    /// Maximum size in bytes of the data that can be hashed without being split into chunks.
+    pub(crate) hash_chunk_size: u32,
 }
 
 #[cfg(test)]
@@ -47,6 +49,7 @@ impl CoreConfig {
             rng.gen_range(1..1_000_000_000),
         );
         let max_associated_keys = rng.gen();
+        let hash_chunk_size = rng.gen_range((1024 * 1024 * 2)..(1024 * 1024 * 4));
 
         CoreConfig {
             era_duration,
@@ -57,6 +60,7 @@ impl CoreConfig {
             unbonding_delay,
             round_seigniorage_rate,
             max_associated_keys,
+            hash_chunk_size,
         }
     }
 }
@@ -72,6 +76,7 @@ impl ToBytes for CoreConfig {
         buffer.extend(self.unbonding_delay.to_bytes()?);
         buffer.extend(self.round_seigniorage_rate.to_bytes()?);
         buffer.extend(self.max_associated_keys.to_bytes()?);
+        buffer.extend(self.hash_chunk_size.to_bytes()?);
         Ok(buffer)
     }
 
@@ -84,6 +89,7 @@ impl ToBytes for CoreConfig {
             + self.unbonding_delay.serialized_length()
             + self.round_seigniorage_rate.serialized_length()
             + self.max_associated_keys.serialized_length()
+            + self.hash_chunk_size.serialized_length()
     }
 }
 
@@ -97,6 +103,7 @@ impl FromBytes for CoreConfig {
         let (unbonding_delay, remainder) = u64::from_bytes(remainder)?;
         let (round_seigniorage_rate, remainder) = Ratio::<u64>::from_bytes(remainder)?;
         let (max_associated_keys, remainder) = FromBytes::from_bytes(remainder)?;
+        let (hash_chunk_size, remainder) = FromBytes::from_bytes(remainder)?;
         let config = CoreConfig {
             era_duration,
             minimum_era_height,
@@ -106,6 +113,7 @@ impl FromBytes for CoreConfig {
             unbonding_delay,
             round_seigniorage_rate,
             max_associated_keys,
+            hash_chunk_size,
         };
         Ok((config, remainder))
     }
