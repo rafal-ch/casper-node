@@ -14,11 +14,11 @@ pub struct AddressGenerator(ChaChaRng);
 
 impl AddressGenerator {
     /// Creates an [`AddressGenerator`] from a 32-byte hash digest and [`Phase`].
-    pub fn new(hash: &[u8], phase: Phase) -> AddressGenerator {
+    pub fn new(hash: &[u8], phase: Phase, chunk_size: u32) -> AddressGenerator {
         AddressGeneratorBuilder::new()
             .seed_with(hash)
             .seed_with(&[phase as u8])
-            .build()
+            .build(chunk_size)
     }
 
     /// Creates a new [`Address`] by using an internal instance of PRNG.
@@ -30,8 +30,8 @@ impl AddressGenerator {
 
     /// Creates a new [`Address`] by hashing an output from [`AddressGenerator::create_address`]
     /// with a blake2b256.
-    pub fn new_hash_address(&mut self) -> Address {
-        Digest::hash(self.create_address()).value()
+    pub fn new_hash_address(&mut self, chunk_size: u32) -> Address {
+        Digest::hash(self.create_address(), chunk_size).value()
     }
 
     /// Creates a new [`URef`] with a new address generated.
@@ -62,8 +62,9 @@ impl AddressGeneratorBuilder {
     /// Creates a new [`AddressGenerator`].
     ///
     /// This method hashes the seed bytes, and seeds the PRNG with it.
-    pub fn build(self) -> AddressGenerator {
-        let seed: [u8; SEED_LENGTH] = Digest::hash(self.data).value();
+    pub fn build(self, chunk_size: u32) -> AddressGenerator {
+        // TODO[RC]: Move `chunk_size` parameter to the builder function
+        let seed: [u8; SEED_LENGTH] = Digest::hash(self.data, chunk_size).value();
         AddressGenerator(ChaChaRng::from_seed(seed))
     }
 }

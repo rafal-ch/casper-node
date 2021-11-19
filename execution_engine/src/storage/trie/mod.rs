@@ -479,11 +479,12 @@ pub(crate) mod operations {
     /// Creates a tuple containing an empty root hash and an empty root (a node
     /// with an empty pointer block)
     pub fn create_hashed_empty_trie<K: ToBytes, V: ToBytes>(
+        chunk_size: u32,
     ) -> Result<(Digest, Trie<K, V>), bytesrepr::Error> {
         let root: Trie<K, V> = Trie::Node {
             pointer_block: Default::default(),
         };
         let root_bytes: Vec<u8> = root.to_bytes()?;
-        Ok((Digest::hash(&root_bytes), root))
+        Ok((Digest::hash(&root_bytes, chunk_size), root))
     }
 }

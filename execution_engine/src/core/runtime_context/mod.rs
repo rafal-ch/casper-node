@@ -370,8 +370,11 @@ where
     }
 
     /// Generates new deterministic hash for uses as an address.
-    pub fn new_hash_address(&mut self) -> Result<[u8; KEY_HASH_LENGTH], Error> {
-        Ok(self.address_generator.borrow_mut().new_hash_address())
+    pub fn new_hash_address(&mut self, chunk_size: u32) -> Result<[u8; KEY_HASH_LENGTH], Error> {
+        Ok(self
+            .address_generator
+            .borrow_mut()
+            .new_hash_address(chunk_size))
     }
 
     /// Creates new [`URef`] instance.

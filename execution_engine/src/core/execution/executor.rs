@@ -108,6 +108,7 @@ impl Executor {
         phase: Phase,
         contract_package: &ContractPackage,
         call_stack: Vec<CallStackElement>,
+        chunk_size: u32,
     ) -> ExecutionResult
     where
         R: StateReader<Key, StoredValue>,
@@ -129,7 +130,7 @@ impl Executor {
         };
 
         let address_generator = {
-            let generator = AddressGenerator::new(deploy_hash.as_bytes(), phase);
+            let generator = AddressGenerator::new(deploy_hash.as_bytes(), phase, chunk_size);
             Rc::new(RefCell::new(generator))
         };
         let gas_counter: Gas = Gas::default();
@@ -282,6 +283,7 @@ impl Executor {
         tracking_copy: Rc<RefCell<TrackingCopy<R>>>,
         phase: Phase,
         call_stack: Vec<CallStackElement>,
+        chunk_size: u32,
     ) -> ExecutionResult
     where
         R: StateReader<Key, StoredValue>,
@@ -289,7 +291,7 @@ impl Executor {
     {
         // use host side standard payment
         let address_generator = {
-            let generator = AddressGenerator::new(deploy_hash.as_bytes(), phase);
+            let generator = AddressGenerator::new(deploy_hash.as_bytes(), phase, chunk_size);
             Rc::new(RefCell::new(generator))
         };
 
@@ -364,6 +366,7 @@ impl Executor {
         tracking_copy: Rc<RefCell<TrackingCopy<R>>>,
         phase: Phase,
         call_stack: Vec<CallStackElement>,
+        chunk_size: u32,
     ) -> (Option<T>, ExecutionResult)
     where
         R: StateReader<Key, StoredValue>,
@@ -434,7 +437,7 @@ impl Executor {
         }
 
         let address_generator = {
-            let generator = AddressGenerator::new(deploy_hash.as_bytes(), phase);
+            let generator = AddressGenerator::new(deploy_hash.as_bytes(), phase, chunk_size);
             Rc::new(RefCell::new(generator))
         };
         let gas_counter = Gas::default(); // maybe const?

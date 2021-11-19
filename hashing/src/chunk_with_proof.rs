@@ -71,11 +71,11 @@ impl ChunkWithProof {
     }
 
     #[allow(unused)]
-    pub(crate) fn verify(&self) -> bool {
+    pub(crate) fn verify(&self, chunk_size: u32) -> bool {
         if self.proof.verify().is_err() {
             return false;
         }
-        let chunk_hash = Digest::hash(self.chunk());
+        let chunk_hash = Digest::hash(self.chunk(), chunk_size);
         self.proof
             .merkle_proof()
             .first()

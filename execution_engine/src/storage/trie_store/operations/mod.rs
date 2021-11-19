@@ -238,6 +238,7 @@ pub fn missing_trie_keys<K, V, T, S, E>(
     txn: &T,
     store: &S,
     mut trie_keys_to_visit: Vec<Digest>,
+    chunk_size: u32,
 ) -> Result<Vec<Digest>, E>
 where
     K: ToBytes + FromBytes + Eq + std::fmt::Debug,
@@ -257,7 +258,7 @@ where
         if let Some(trie_value) = &maybe_retrieved_trie {
             let hash_of_trie_value = {
                 let node_bytes = trie_value.to_bytes()?;
-                Digest::hash(&node_bytes)
+                Digest::hash(&node_bytes, chunk_size)
             };
             if trie_key != hash_of_trie_value {
                 warn!(
@@ -493,6 +494,7 @@ fn delete<K, V, T, S, E>(
     store: &S,
     root: &Digest,
     key_to_delete: &K,
+    chunk_size: u32,
 ) -> Result<DeleteResult, E>
 where
     K: ToBytes + FromBytes + Clone + PartialEq + std::fmt::Debug,
@@ -531,7 +533,7 @@ where
                     pointer_block[idx as usize] = None;
                     Trie::Node { pointer_block }
                 };
-                let trie_key = Digest::hash(&trie_node.to_bytes()?);
+                let trie_key = Digest::hash(&trie_node.to_bytes()?, chunk_size);
                 new_elements.push((trie_key, trie_node))
             }
             // The parent is the node which pointed to the leaf we deleted, and that leaf had one or
@@ -548,7 +550,7 @@ where
                         let trie_node = Trie::Node {
                             pointer_block: Box::new(PointerBlock::new()),
                         };
-                        let trie_key = Digest::hash(&trie_node.to_bytes()?);
+                        let trie_key = Digest::hash(&trie_node.to_bytes()?, chunk_size);
                         new_elements.push((trie_key, trie_node));
                         break;
                     }
@@ -562,7 +564,7 @@ where
                     (_, None) => {
                         pointer_block[idx as usize] = None;
                         let trie_node = Trie::Node { pointer_block };
-                        let trie_key = Digest::hash(&trie_node.to_bytes()?);
+                        let trie_key = Digest::hash(&trie_node.to_bytes()?, chunk_size);
                         new_elements.push((trie_key, trie_node));
                         break;
                     }
@@ -571,7 +573,7 @@ where
                     (Pointer::LeafPointer(..), Some((idx, Trie::Node { mut pointer_block }))) => {
                         pointer_block[idx as usize] = Some(sibling_pointer);
                         let trie_node = Trie::Node { pointer_block };
-                        let trie_key = Digest::hash(&trie_node.to_bytes()?);
+                        let trie_key = Digest::hash(&trie_node.to_bytes()?, chunk_size);
                         new_elements.push((trie_key, trie_node))
                     }
                     // The sibling is a leaf and the grandparent is an extension.
@@ -587,7 +589,7 @@ where
                             Some((idx, Trie::Node { mut pointer_block })) => {
                                 pointer_block[idx as usize] = Some(sibling_pointer);
                                 let trie_node = Trie::Node { pointer_block };
-                                let trie_key = Digest::hash(&trie_node.to_bytes()?);
+                                let trie_key = Digest::hash(&trie_node.to_bytes()?, chunk_size);
                                 new_elements.push((trie_key, trie_node))
                             }
                         }
@@ -617,7 +619,7 @@ where
                                     affix: vec![sibling_idx].into(),
                                     pointer: sibling_pointer,
                                 };
-                                let trie_key = Digest::hash(&new_extension.to_bytes()?);
+                                let trie_key = Digest::hash(&new_extension.to_bytes()?, chunk_size);
                                 new_elements.push((trie_key, new_extension))
                             }
                             // The single sibling is a extension.  We output an extension to replace
@@ -634,7 +636,7 @@ where
                                     affix: new_affix.into(),
                                     pointer,
                                 };
-                                let trie_key = Digest::hash(&new_extension.to_bytes()?);
+                                let trie_key = Digest::hash(&new_extension.to_bytes()?, chunk_size);
                                 new_elements.push((trie_key, new_extension))
                             }
                         }
@@ -649,7 +651,7 @@ where
                     pointer_block[idx as usize] = Some(Pointer::NodePointer(*trie_key));
                     Trie::Node { pointer_block }
                 };
-                let trie_key = Digest::hash(&trie_node.to_bytes()?);
+                let trie_key = Digest::hash(&trie_node.to_bytes()?, chunk_size);
                 new_elements.push((trie_key, trie_node))
             }
             // The parent is an extension, and we are outputting an extension.  Prepend the parent
@@ -673,7 +675,7 @@ where
                         affix: child_affix.to_owned(),
                         pointer: pointer.to_owned(),
                     };
-                    Digest::hash(&new_extension.to_bytes()?)
+                    Digest::hash(&new_extension.to_bytes()?, chunk_size)
                 }
             }
             // The parent is an extension and the new element is a pointer block.  The next element
@@ -681,7 +683,7 @@ where
             (Some((trie_key, Trie::Node { .. })), Trie::Extension { affix, .. }) => {
                 let pointer = Pointer::NodePointer(*trie_key);
                 let trie_extension = Trie::Extension { affix, pointer };
-                let trie_key = Digest::hash(&trie_extension.to_bytes()?);
+                let trie_key = Digest::hash(&trie_extension.to_bytes()?, chunk_size);
                 new_elements.push((trie_key, trie_extension))
             }
         }
@@ -701,6 +703,7 @@ where
 fn rehash<K, V>(
     mut tip: Trie<K, V>,
     parents: Parents<K, V>,
+    chunk_size: u32,
 ) -> Result<Vec<(Digest, Trie<K, V>)>, bytesrepr::Error>
 where
     K: ToBytes + Clone,
@@ -709,7 +712,7 @@ where
     let mut ret: Vec<(Digest, Trie<K, V>)> = Vec::new();
     let mut tip_hash = {
         let node_bytes = tip.to_bytes()?;
-        Digest::hash(&node_bytes)
+        Digest::hash(&node_bytes, chunk_size)
     };
     ret.push((tip_hash, tip.to_owned()));
 
@@ -730,7 +733,7 @@ where
                 };
                 tip_hash = {
                     let node_bytes = tip.to_bytes()?;
-                    Digest::hash(&node_bytes)
+                    Digest::hash(&node_bytes, chunk_size)
                 };
                 ret.push((tip_hash, tip.to_owned()))
             }
@@ -741,7 +744,7 @@ where
                 };
                 tip_hash = {
                     let extension_bytes = tip.to_bytes()?;
-                    Digest::hash(&extension_bytes)
+                    Digest::hash(&extension_bytes, chunk_size)
                 };
                 ret.push((tip_hash, tip.to_owned()))
             }
@@ -823,6 +826,7 @@ fn reparent_leaf<K, V>(
     new_leaf_path: &[u8],
     existing_leaf_path: &[u8],
     parents: Parents<K, V>,
+    chunk_size: u32,
 ) -> Result<(Trie<K, V>, Parents<K, V>), bytesrepr::Error>
 where
     K: ToBytes,
@@ -855,7 +859,7 @@ where
     // to parents.
     if !affix.is_empty() {
         let new_node_bytes = new_node.to_bytes()?;
-        let new_node_hash = Digest::hash(&new_node_bytes);
+        let new_node_hash = Digest::hash(&new_node_bytes, chunk_size);
         let new_extension = Trie::extension(affix.to_vec(), Pointer::NodePointer(new_node_hash));
         parents.push((child_index, new_extension));
     }
@@ -880,6 +884,7 @@ fn split_extension<K, V>(
     new_leaf_path: &[u8],
     existing_extension: Trie<K, V>,
     mut parents: Parents<K, V>,
+    chunk_size: u32,
 ) -> Result<SplitResult<K, V>, bytesrepr::Error>
 where
     K: ToBytes + Clone,
@@ -909,7 +914,7 @@ where
         } else {
             let child_extension = Trie::extension(child_extension_affix.to_vec(), pointer);
             let child_extension_bytes = child_extension.to_bytes()?;
-            let child_extension_hash = Digest::hash(&child_extension_bytes);
+            let child_extension_hash = Digest::hash(&child_extension_bytes, chunk_size);
             Some((child_extension_hash, child_extension))
         };
     // Assemble a new node.
@@ -923,7 +928,7 @@ where
     // Create a parent extension if necessary
     if !parent_extension_affix.is_empty() {
         let new_node_bytes = new_node.to_bytes()?;
-        let new_node_hash = Digest::hash(&new_node_bytes);
+        let new_node_hash = Digest::hash(&new_node_bytes, chunk_size);
         let parent_extension = Trie::extension(
             parent_extension_affix.to_vec(),
             Pointer::NodePointer(new_node_hash),
@@ -951,6 +956,7 @@ pub fn write<K, V, T, S, E>(
     root: &Digest,
     key: &K,
     value: &V,
+    chunk_size: u32,
 ) -> Result<WriteResult, E>
 where
     K: ToBytes + FromBytes + Clone + Eq + std::fmt::Debug,
@@ -981,7 +987,9 @@ where
                 Trie::Leaf {
                     key: ref leaf_key,
                     value: ref leaf_value,
-                } if key == leaf_key && value != leaf_value => rehash(new_leaf, parents)?,
+                } if key == leaf_key && value != leaf_value => {
+                    rehash(new_leaf, parents, chunk_size)?
+                }
                 // If the "tip" is an existing leaf with a different key than
                 // the new leaf, then we are in a situation where the new leaf
                 // shares some common prefix with the existing leaf.
@@ -990,9 +998,10 @@ where
                     ..
                 } if key != existing_leaf_key => {
                     let existing_leaf_path = existing_leaf_key.to_bytes()?;
-                    let (new_node, parents) = reparent_leaf(&path, &existing_leaf_path, parents)?;
+                    let (new_node, parents) =
+                        reparent_leaf(&path, &existing_leaf_path, parents, chunk_size)?;
                     let parents = add_node_to_parents(&path, new_node, parents);
-                    rehash(new_leaf, parents)?
+                    rehash(new_leaf, parents, chunk_size)?
                 }
                 // This case is unreachable, but the compiler can't figure
                 // that out.
@@ -1001,7 +1010,7 @@ where
                 // to the new leaf to the node's pointer block.
                 node @ Trie::Node { .. } => {
                     let parents = add_node_to_parents(&path, node, parents);
-                    rehash(new_leaf, parents)?
+                    rehash(new_leaf, parents, chunk_size)?
                 }
                 // If the "tip" is an extension node, then we must modify or
                 // replace it, adding a node where necessary.
@@ -1010,14 +1019,14 @@ where
                         new_node,
                         parents,
                         maybe_hashed_child_extension,
-                    } = split_extension(&path, extension, parents)?;
+                    } = split_extension(&path, extension, parents, chunk_size)?;
                     let parents = add_node_to_parents(&path, new_node, parents);
                     if let Some(hashed_extension) = maybe_hashed_child_extension {
                         let mut ret = vec![hashed_extension];
-                        ret.extend(rehash(new_leaf, parents)?);
+                        ret.extend(rehash(new_leaf, parents, chunk_size)?);
                         ret
                     } else {
-                        rehash(new_leaf, parents)?
+                        rehash(new_leaf, parents, chunk_size)?
                     }
                 }
             };
@@ -1039,6 +1048,7 @@ pub fn put_trie<K, V, T, S, E>(
     txn: &mut T,
     store: &S,
     trie: &Trie<K, V>,
+    chunk_size: u32,
 ) -> Result<Digest, E>
 where
     K: ToBytes + FromBytes + Clone + Eq + std::fmt::Debug,
@@ -1050,7 +1060,7 @@ where
 {
     let trie_hash = {
         let node_bytes = trie.to_bytes()?;
-        Digest::hash(&node_bytes)
+        Digest::hash(&node_bytes, chunk_size)
     };
     store.put(txn, &trie_hash, trie)?;
     Ok(trie_hash)

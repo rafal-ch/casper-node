@@ -159,10 +159,10 @@ where
     /// 3. When there are no more steps, we return the final hash we have computed.
     ///
     /// The steps in this function reflect `operations::rehash`.
-    pub fn compute_state_hash(&self) -> Result<Digest, bytesrepr::Error> {
+    pub fn compute_state_hash(&self, chunk_size: u32) -> Result<Digest, bytesrepr::Error> {
         let mut hash = {
             let leaf_bytes = Trie::leaf(self.key, self.value.to_owned()).to_bytes()?;
-            Digest::hash(&leaf_bytes)
+            Digest::hash(&leaf_bytes, chunk_size)
         };
 
         for (proof_step_index, proof_step) in self.proof_steps.iter().enumerate() {
@@ -186,7 +186,7 @@ where
                     Trie::<K, V>::extension(affix.clone().into(), pointer).to_bytes()?
                 }
             };
-            hash = Digest::hash(&proof_step_bytes);
+            hash = Digest::hash(&proof_step_bytes, chunk_size);
         }
         Ok(hash)
     }

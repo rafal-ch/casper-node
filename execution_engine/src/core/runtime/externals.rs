@@ -30,6 +30,8 @@ where
         index: usize,
         args: RuntimeArgs,
     ) -> Result<Option<RuntimeValue>, Trap> {
+        let chunk_size: u32 = 1024; // TODO[RC]: fix hardcoded chunk_size
+
         let func = FunctionIndex::try_from(index).expect("unknown function index");
 
         let mut scoped_instrumenter = ScopedInstrumenter::new(func);
@@ -531,7 +533,7 @@ where
                 )?;
                 let package_status = ContractPackageStatus::new(is_locked);
                 let (hash_addr, access_addr) =
-                    self.create_contract_package_at_hash(package_status)?;
+                    self.create_contract_package_at_hash(package_status, chunk_size)?;
 
                 self.function_address(hash_addr, hash_dest_ptr)?;
                 self.function_address(access_addr, access_dest_ptr)?;
@@ -644,6 +646,7 @@ where
                     output_size as usize,
                     bytes_written_ptr,
                     version_ptr,
+                    chunk_size,
                 )?;
                 Ok(Some(RuntimeValue::I32(api_error::i32_from(ret))))
             }

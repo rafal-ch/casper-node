@@ -2445,8 +2445,9 @@ where
     fn create_contract_package_at_hash(
         &mut self,
         lock_status: ContractPackageStatus,
+        chunk_size: u32,
     ) -> Result<([u8; 32], [u8; 32]), Error> {
-        let addr = self.context.new_hash_address()?;
+        let addr = self.context.new_hash_address(chunk_size)?;
         let (contract_package, access_key) = self.create_contract_package(lock_status)?;
         self.context
             .metered_write_gs_unsafe(Key::Hash(addr), contract_package)?;
@@ -2533,6 +2534,7 @@ where
         output_size: usize,
         bytes_written_ptr: u32,
         version_ptr: u32,
+        chunk_size: u32,
     ) -> Result<Result<(), ApiError>, Error> {
         self.context
             .validate_key(&Key::from(contract_package_hash))?;
@@ -2548,13 +2550,13 @@ where
             return Err(Error::LockedContract(contract_package_hash));
         }
 
-        let contract_wasm_hash = self.context.new_hash_address()?;
+        let contract_wasm_hash = self.context.new_hash_address(chunk_size)?;
         let contract_wasm = {
             let module_bytes = self.get_module_from_entry_points(&entry_points)?;
             ContractWasm::new(module_bytes)
         };
 
-        let contract_hash = self.context.new_hash_address()?;
+        let contract_hash = self.context.new_hash_address(chunk_size)?;
 
         let protocol_version = self.context.protocol_version();
         let major = protocol_version.value().major;

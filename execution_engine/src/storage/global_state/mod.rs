@@ -90,6 +90,7 @@ pub trait StateProvider {
         correlation_id: CorrelationId,
         state_hash: Digest,
         effects: AdditiveMap<Key, Transform>,
+        chunk_size: u32,
     ) -> Result<Digest, Self::Error>;
 
     /// Returns an empty root hash.
@@ -107,6 +108,7 @@ pub trait StateProvider {
         &self,
         correlation_id: CorrelationId,
         trie: &Trie<Key, StoredValue>,
+        chunk_size: u32,
     ) -> Result<Digest, Self::Error>;
 
     /// Finds all of the missing or corrupt keys of which are descendants of `trie_key`
@@ -114,6 +116,7 @@ pub trait StateProvider {
         &self,
         correlation_id: CorrelationId,
         trie_keys: Vec<Digest>,
+        chunk_size: u32,
     ) -> Result<Vec<Digest>, Self::Error>;
 }
 
@@ -124,6 +127,7 @@ pub fn commit<'a, R, S, H, E>(
     correlation_id: CorrelationId,
     prestate_hash: Digest,
     effects: AdditiveMap<Key, Transform, H>,
+    chunk_size: u32,
 ) -> Result<Digest, E>
 where
     R: TransactionSource<'a, Handle = S::Handle>,
@@ -178,8 +182,15 @@ where
             }
         };
 
-        let write_result =
-            write::<_, _, _, _, E>(correlation_id, &mut txn, store, &state_root, &key, &value)?;
+        let write_result = write::<_, _, _, _, E>(
+            correlation_id,
+            &mut txn,
+            store,
+            &state_root,
+            &key,
+            &value,
+            chunk_size,
+        )?;
 
         match write_result {
             WriteResult::Written(root_hash) => {

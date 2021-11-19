@@ -50,11 +50,11 @@ pub struct InMemoryGlobalStateView {
 
 impl InMemoryGlobalState {
     /// Creates an empty state.
-    pub fn empty() -> Result<Self, error::Error> {
+    pub fn empty(chunk_size: u32) -> Result<Self, error::Error> {
         let environment = Arc::new(InMemoryEnvironment::new());
         let trie_store = Arc::new(InMemoryTrieStore::new(&environment, None));
         let root_hash: Digest = {
-            let (root_hash, root) = create_hashed_empty_trie::<Key, StoredValue>()?;
+            let (root_hash, root) = create_hashed_empty_trie::<Key, StoredValue>(chunk_size)?;
             let mut txn = environment.create_read_write_txn()?;
             trie_store.put(&mut txn, &root_hash, &root)?;
             txn.commit()?;
@@ -82,8 +82,9 @@ impl InMemoryGlobalState {
     pub fn from_pairs(
         correlation_id: CorrelationId,
         pairs: &[(Key, StoredValue)],
+        chunk_size: u32,
     ) -> Result<(Self, Digest), error::Error> {
-        let state = InMemoryGlobalState::empty()?;
+        let state = InMemoryGlobalState::empty(chunk_size)?;
         let mut current_root = state.empty_root_hash;
         {
             let mut txn = state.environment.create_read_write_txn()?;
@@ -96,6 +97,7 @@ impl InMemoryGlobalState {
                     &current_root,
                     &key,
                     value,
+                    chunk_size,
                 )? {
                     WriteResult::Written(root_hash) => {
                         current_root = root_hash;
@@ -220,6 +222,7 @@ impl StateProvider for InMemoryGlobalState {
         correlation_id: CorrelationId,
         prestate_hash: Digest,
         effects: AdditiveMap<Key, Transform>,
+        chunk_size: u32,
     ) -> Result<Digest, Self::Error> {
         commit::<InMemoryEnvironment, InMemoryTrieStore, _, Self::Error>(
             &self.environment,
@@ -227,6 +230,7 @@ impl StateProvider for InMemoryGlobalState {
             correlation_id,
             prestate_hash,
             effects,
+            chunk_size,
         )
         .map_err(Into::into)
     }
@@ -250,6 +254,7 @@ impl StateProvider for InMemoryGlobalState {
         &self,
         correlation_id: CorrelationId,
         trie: &Trie<Key, StoredValue>,
+        chunk_size: u32,
     ) -> Result<Digest, Self::Error> {
         let mut txn = self.environment.create_read_write_txn()?;
         let trie_hash = put_trie::<
@@ -258,7 +263,7 @@ impl StateProvider for InMemoryGlobalState {
             InMemoryReadWriteTransaction,
             InMemoryTrieStore,
             Self::Error,
-        >(correlation_id, &mut txn, &self.trie_store, trie)?;
+        >(correlation_id, &mut txn, &self.trie_store, trie, chunk_size)?;
         txn.commit()?;
         Ok(trie_hash)
     }
@@ -268,16 +273,22 @@ impl StateProvider for InMemoryGlobalState {
         &self,
         correlation_id: CorrelationId,
         trie_keys: Vec<Digest>,
+        chunk_size: u32,
     ) -> Result<Vec<Digest>, Self::Error> {
         let txn = self.environment.create_read_txn()?;
-        let missing_descendants =
-            missing_trie_keys::<
-                Key,
-                StoredValue,
-                InMemoryReadTransaction,
-                InMemoryTrieStore,
-                Self::Error,
-            >(correlation_id, &txn, self.trie_store.deref(), trie_keys)?;
+        let missing_descendants = missing_trie_keys::<
+            Key,
+            StoredValue,
+            InMemoryReadTransaction,
+            InMemoryTrieStore,
+            Self::Error,
+        >(
+            correlation_id,
+            &txn,
+            self.trie_store.deref(),
+            trie_keys,
+            chunk_size,
+        )?;
         txn.commit()?;
         Ok(missing_descendants)
     }

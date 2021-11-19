@@ -159,6 +159,7 @@ where
         genesis_config_hash: Digest,
         protocol_version: ProtocolVersion,
         ee_config: &ExecConfig,
+        chunk_size: u32,
     ) -> Result<GenesisSuccess, Error> {
         // Preliminaries
         let initial_root_hash = self.state.empty_root();
@@ -186,21 +187,22 @@ where
             ee_config.clone(),
             tracking_copy,
             system_module,
+            chunk_size,
         );
 
-        genesis_installer.create_mint()?;
+        genesis_installer.create_mint(chunk_size)?;
 
         // Create accounts
         genesis_installer.create_accounts()?;
 
         // Create handle payment
-        genesis_installer.create_handle_payment()?;
+        genesis_installer.create_handle_payment(chunk_size)?;
 
         // Create auction
-        genesis_installer.create_auction()?;
+        genesis_installer.create_auction(chunk_size)?;
 
         // Create standard payment
-        genesis_installer.create_standard_payment()?;
+        genesis_installer.create_standard_payment(chunk_size)?;
 
         // Commit the transforms.
         let execution_effect = genesis_installer.finalize();
@@ -211,6 +213,7 @@ where
                 correlation_id,
                 initial_root_hash,
                 execution_effect.transforms.to_owned(),
+                chunk_size,
             )
             .map_err(Into::<execution::Error>::into)?;
 
@@ -230,6 +233,7 @@ where
         &self,
         correlation_id: CorrelationId,
         upgrade_config: UpgradeConfig,
+        chunk_size: u32,
     ) -> Result<UpgradeSuccess, Error> {
         // per specification:
         // https://casperlabs.atlassian.net/wiki/spaces/EN/pages/139854367/Upgrading+System+Contracts+Specification
@@ -408,6 +412,7 @@ where
                 correlation_id,
                 pre_state_hash,
                 execution_effect.transforms.to_owned(),
+                chunk_size,
             )
             .map_err(Into::into)?;
 
@@ -465,6 +470,7 @@ where
         &self,
         correlation_id: CorrelationId,
         mut exec_request: ExecuteRequest,
+        chunk_size: u32,
     ) -> Result<ExecutionResults, Error> {
         let executor = Executor::new(*self.config());
 
@@ -481,6 +487,7 @@ where
                     BlockTime::new(exec_request.block_time),
                     deploy_item,
                     exec_request.proposer.clone(),
+                    chunk_size,
                 ),
                 _ => self.deploy(
                     correlation_id,
@@ -490,6 +497,7 @@ where
                     BlockTime::new(exec_request.block_time),
                     deploy_item,
                     exec_request.proposer.clone(),
+                    chunk_size,
                 ),
             };
             match result {
@@ -569,6 +577,7 @@ where
         blocktime: BlockTime,
         deploy_item: DeployItem,
         proposer: PublicKey,
+        chunk_size: u32,
     ) -> Result<ExecutionResult, Error> {
         let tracking_copy = match self.tracking_copy(prestate_hash) {
             Err(error) => return Ok(ExecutionResult::precondition_failure(error)),
@@ -777,6 +786,7 @@ where
                             Rc::clone(&tracking_copy),
                             Phase::Session,
                             create_purse_call_stack,
+                            chunk_size,
                         );
                     match maybe_uref {
                         Some(main_purse) => {
@@ -876,6 +886,7 @@ where
                     Rc::clone(&tracking_copy),
                     Phase::Payment,
                     get_payment_purse_call_stack,
+                    chunk_size,
                 );
 
             payment_uref = match maybe_payment_uref {
@@ -928,6 +939,7 @@ where
                     Rc::clone(&tracking_copy),
                     Phase::Payment,
                     transfer_to_payment_purse_call_stack,
+                    chunk_size,
                 );
 
             if let Some(error) = payment_result.as_error().cloned() {
@@ -1022,6 +1034,7 @@ where
                 Rc::clone(&tracking_copy),
                 Phase::Session,
                 transfer_call_stack,
+                chunk_size,
             );
 
         // User is already charged fee for wasmless contract, and we need to make sure we will not
@@ -1094,6 +1107,7 @@ where
                     finalization_tc,
                     Phase::FinalizePayment,
                     finalize_payment_call_stack,
+                    chunk_size,
                 );
 
             finalize_result
@@ -1152,6 +1166,7 @@ where
         blocktime: BlockTime,
         deploy_item: DeployItem,
         proposer: PublicKey,
+        chunk_size: u32,
     ) -> Result<ExecutionResult, Error> {
         // spec: https://casperlabs.atlassian.net/wiki/spaces/EN/pages/123404576/Payment+code+execution+specification
 
@@ -1338,6 +1353,7 @@ where
                     Rc::clone(&tracking_copy),
                     phase,
                     payment_call_stack,
+                    chunk_size,
                 )
             } else {
                 executor.exec(
@@ -1357,6 +1373,7 @@ where
                     phase,
                     &payment_package,
                     payment_call_stack,
+                    chunk_size,
                 )
             }
         };
@@ -1538,6 +1555,7 @@ where
                 Phase::Session,
                 &session_package,
                 session_call_stack,
+                chunk_size,
             )
         };
         debug!("Session result: {:?}", session_result);
@@ -1686,6 +1704,7 @@ where
                     finalization_tc,
                     Phase::FinalizePayment,
                     handle_payment_call_stack,
+                    chunk_size,
                 );
 
             finalize_result
@@ -1715,12 +1734,13 @@ where
         correlation_id: CorrelationId,
         pre_state_hash: Digest,
         effects: AdditiveMap<Key, Transform>,
+        chunk_size: u32,
     ) -> Result<Digest, Error>
     where
         Error: From<S::Error>,
     {
         self.state
-            .commit(correlation_id, pre_state_hash, effects)
+            .commit(correlation_id, pre_state_hash, effects, chunk_size)
             .map_err(Error::from)
     }
 
@@ -1743,14 +1763,15 @@ where
         &self,
         correlation_id: CorrelationId,
         trie: &Trie<Key, StoredValue>,
+        chunk_size: u32,
     ) -> Result<Vec<Digest>, Error>
     where
         Error: From<S::Error>,
     {
-        let inserted_trie_key = self.state.put_trie(correlation_id, trie)?;
-        let missing_descendant_trie_keys = self
-            .state
-            .missing_trie_keys(correlation_id, vec![inserted_trie_key])?;
+        let inserted_trie_key = self.state.put_trie(correlation_id, trie, chunk_size)?;
+        let missing_descendant_trie_keys =
+            self.state
+                .missing_trie_keys(correlation_id, vec![inserted_trie_key], chunk_size)?;
         Ok(missing_descendant_trie_keys)
     }
 
@@ -1759,12 +1780,13 @@ where
         &self,
         correlation_id: CorrelationId,
         trie_keys: Vec<Digest>,
+        chunk_size: u32,
     ) -> Result<Vec<Digest>, Error>
     where
         Error: From<S::Error>,
     {
         self.state
-            .missing_trie_keys(correlation_id, trie_keys)
+            .missing_trie_keys(correlation_id, trie_keys, chunk_size)
             .map_err(Error::from)
     }
 
@@ -1773,6 +1795,7 @@ where
         &self,
         correlation_id: CorrelationId,
         get_era_validators_request: GetEraValidatorsRequest,
+        chunk_size: u32,
     ) -> Result<EraValidators, GetEraValidatorsError> {
         let protocol_version = get_era_validators_request.protocol_version();
 
@@ -1828,7 +1851,7 @@ where
                 .into_bytes()
                 .map_err(Error::from)?
                 .to_vec();
-            DeployHash::new(Digest::hash(&bytes).value())
+            DeployHash::new(Digest::hash(&bytes, chunk_size).value())
         };
 
         let get_era_validators_call_stack = {
@@ -1857,6 +1880,7 @@ where
                 Rc::clone(&tracking_copy),
                 Phase::Session,
                 get_era_validators_call_stack,
+                chunk_size,
             );
 
         if let Some(error) = execution_result.take_error() {
@@ -1904,6 +1928,7 @@ where
         &self,
         correlation_id: CorrelationId,
         step_request: StepRequest,
+        chunk_size: u32,
     ) -> Result<StepSuccess, StepError> {
         let tracking_copy = match self.tracking_copy(step_request.pre_state_hash) {
             Err(error) => return Err(StepError::TrackingCopyError(error)),
@@ -1964,7 +1989,7 @@ where
             // seeds address generator w/ era_end_timestamp_millis
             let mut bytes = step_request.era_end_timestamp_millis.into_bytes()?;
             bytes.append(&mut step_request.next_era_id.into_bytes()?);
-            DeployHash::new(Digest::hash(&bytes).value())
+            DeployHash::new(Digest::hash(&bytes, chunk_size).value())
         };
 
         let base_key = Key::from(*auction_contract_hash);
@@ -2010,6 +2035,7 @@ where
             Rc::clone(&tracking_copy),
             Phase::Session,
             distribute_rewards_call_stack,
+            chunk_size,
         );
 
         if let Some(exec_error) = execution_result.take_error() {
@@ -2053,6 +2079,7 @@ where
                     Rc::clone(&tracking_copy),
                     Phase::Session,
                     slash_call_stack,
+                    chunk_size,
                 );
 
             if let Some(exec_error) = execution_result.take_error() {
@@ -2101,6 +2128,7 @@ where
             Rc::clone(&tracking_copy),
             Phase::Session,
             run_auction_call_stack,
+            chunk_size,
         );
 
         if let Some(exec_error) = execution_result.take_error() {
@@ -2117,6 +2145,7 @@ where
                 correlation_id,
                 step_request.pre_state_hash,
                 execution_effect.transforms,
+                chunk_size,
             )
             .map_err(Into::into)?;
 

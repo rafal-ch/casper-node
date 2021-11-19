@@ -64,7 +64,7 @@ impl Digest {
     pub const SENTINEL_MERKLE_TREE: Digest = Digest([2u8; Digest::LENGTH]);
 
     /// Creates a 32-byte BLAKE2b hash digest from a given a piece of data.
-    pub fn hash<T: AsRef<[u8]>>(data: T) -> Digest {
+    pub fn hash<T: AsRef<[u8]>>(data: T, chunk_size: u32) -> Digest {
         // TODO:
         // Temporarily, to avoid potential regression, we always use the original hashing method.
         // After the `ChunkWithProof` is thoroughly tested we should replace
@@ -72,16 +72,16 @@ impl Digest {
         // This change may require updating the hashes in the `test_hash_btreemap'
         // and `hash_known` tests.
         //
-        // if data.as_ref().len() > chunk_size as usize {
-        //     Self::hash_merkle_tree(
-        //         data.as_ref()
-        //             .chunks(chunk_size as usize)
-        //             .map(Self::blake2b_hash),
-        //     )
-        // } else {
-        //     Self::blake2b_hash(data)
-        // }
-        Self::blake2b_hash(data)
+        if data.as_ref().len() > chunk_size as usize {
+            Self::hash_merkle_tree(
+                data.as_ref()
+                    .chunks(chunk_size as usize)
+                    .map(Self::blake2b_hash),
+            )
+        } else {
+            Self::blake2b_hash(data)
+        }
+        //        Self::blake2b_hash(data)
     }
 
     /// Creates a 32-byte BLAKE2b hash digest from a given a piece of data
@@ -154,7 +154,10 @@ impl Digest {
     }
 
     /// Hashes a `BTreeMap`.
-    pub fn hash_btree_map<K, V>(btree_map: &BTreeMap<K, V>) -> Result<Digest, bytesrepr::Error>
+    pub fn hash_btree_map<K, V>(
+        btree_map: &BTreeMap<K, V>,
+        chunk_size: u32,
+    ) -> Result<Digest, bytesrepr::Error>
     where
         K: ToBytes,
         V: ToBytes,
@@ -162,8 +165,8 @@ impl Digest {
         let mut kv_hashes: Vec<Digest> = Vec::with_capacity(btree_map.len());
         for (key, value) in btree_map.iter() {
             kv_hashes.push(Digest::hash_pair(
-                &Digest::hash(key.to_bytes()?),
-                &Digest::hash(value.to_bytes()?),
+                &Digest::hash(key.to_bytes()?, chunk_size),
+                &Digest::hash(value.to_bytes()?, chunk_size),
             ))
         }
         Ok(Self::hash_merkle_tree(kv_hashes))

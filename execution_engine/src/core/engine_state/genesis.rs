@@ -758,6 +758,7 @@ where
         exec_config: ExecConfig,
         tracking_copy: Rc<RefCell<TrackingCopy<<S as StateProvider>::Reader>>>,
         system_module: Module,
+        chunk_size: u32,
     ) -> Self {
         let executor = Executor::new(engine_config);
 
@@ -765,7 +766,7 @@ where
         let genesis_config_hash_bytes = genesis_config_hash.as_ref();
 
         let address_generator = {
-            let generator = AddressGenerator::new(genesis_config_hash_bytes, phase);
+            let generator = AddressGenerator::new(genesis_config_hash_bytes, phase, chunk_size);
             Rc::new(RefCell::new(generator))
         };
 
@@ -799,7 +800,7 @@ where
         self.tracking_copy.borrow().effect()
     }
 
-    pub(crate) fn create_mint(&mut self) -> Result<ContractHash, GenesisError> {
+    pub(crate) fn create_mint(&mut self, chunk_size: u32) -> Result<ContractHash, GenesisError> {
         let round_seigniorage_rate_uref =
             {
                 let round_seigniorage_rate_uref = self
@@ -856,7 +857,7 @@ where
             .borrow_mut()
             .new_uref(AccessRights::READ_ADD_WRITE);
 
-        let (_, mint_hash) = self.store_contract(access_key, named_keys, entry_points);
+        let (_, mint_hash) = self.store_contract(access_key, named_keys, entry_points, chunk_size);
 
         {
             // Insert a partial registry into global state.
@@ -876,7 +877,7 @@ where
         Ok(mint_hash)
     }
 
-    pub fn create_handle_payment(&self) -> Result<ContractHash, GenesisError> {
+    pub fn create_handle_payment(&self, chunk_size: u32) -> Result<ContractHash, GenesisError> {
         let handle_payment_payment_purse = self.create_purse(
             U512::zero(),
             DeployHash::new(self.genesis_config_hash.value()),
@@ -896,14 +897,15 @@ where
             .borrow_mut()
             .new_uref(AccessRights::READ_ADD_WRITE);
 
-        let (_, handle_payment_hash) = self.store_contract(access_key, named_keys, entry_points);
+        let (_, handle_payment_hash) =
+            self.store_contract(access_key, named_keys, entry_points, chunk_size);
 
         self.store_system_contract(HANDLE_PAYMENT, handle_payment_hash)?;
 
         Ok(handle_payment_hash)
     }
 
-    pub(crate) fn create_auction(&self) -> Result<ContractHash, GenesisError> {
+    pub(crate) fn create_auction(&self, chunk_size: u32) -> Result<ContractHash, GenesisError> {
         let locked_funds_period_millis = self.exec_config.locked_funds_period_millis();
         let auction_delay: u64 = self.exec_config.auction_delay();
         let genesis_timestamp_millis: u64 = self.exec_config.genesis_timestamp_millis();
@@ -1139,14 +1141,18 @@ where
             .borrow_mut()
             .new_uref(AccessRights::READ_ADD_WRITE);
 
-        let (_, auction_hash) = self.store_contract(access_key, named_keys, entry_points);
+        let (_, auction_hash) =
+            self.store_contract(access_key, named_keys, entry_points, chunk_size);
 
         self.store_system_contract(AUCTION, auction_hash)?;
 
         Ok(auction_hash)
     }
 
-    pub(crate) fn create_standard_payment(&self) -> Result<ContractHash, GenesisError> {
+    pub(crate) fn create_standard_payment(
+        &self,
+        chunk_size: u32,
+    ) -> Result<ContractHash, GenesisError> {
         let named_keys = NamedKeys::new();
 
         let entry_points = standard_payment::standard_payment_entry_points();
@@ -1156,7 +1162,8 @@ where
             .borrow_mut()
             .new_uref(AccessRights::READ_ADD_WRITE);
 
-        let (_, standard_payment_hash) = self.store_contract(access_key, named_keys, entry_points);
+        let (_, standard_payment_hash) =
+            self.store_contract(access_key, named_keys, entry_points, chunk_size);
 
         self.store_system_contract(STANDARD_PAYMENT, standard_payment_hash)?;
 
@@ -1289,14 +1296,24 @@ where
         access_key: URef,
         named_keys: NamedKeys,
         entry_points: EntryPoints,
+        chunk_size: u32,
     ) -> (ContractPackageHash, ContractHash) {
         let protocol_version = self.protocol_version;
-        let contract_wasm_hash =
-            ContractWasmHash::new(self.address_generator.borrow_mut().new_hash_address());
-        let contract_hash =
-            ContractHash::new(self.address_generator.borrow_mut().new_hash_address());
-        let contract_package_hash =
-            ContractPackageHash::new(self.address_generator.borrow_mut().new_hash_address());
+        let contract_wasm_hash = ContractWasmHash::new(
+            self.address_generator
+                .borrow_mut()
+                .new_hash_address(chunk_size),
+        );
+        let contract_hash = ContractHash::new(
+            self.address_generator
+                .borrow_mut()
+                .new_hash_address(chunk_size),
+        );
+        let contract_package_hash = ContractPackageHash::new(
+            self.address_generator
+                .borrow_mut()
+                .new_hash_address(chunk_size),
+        );
 
         let contract_wasm = ContractWasm::new(vec![]);
         let contract = Contract::new(

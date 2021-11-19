@@ -57,7 +57,7 @@ impl RunGenesisRequest {
 impl Distribution<RunGenesisRequest> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> RunGenesisRequest {
         let input: [u8; 32] = rng.gen();
-        let genesis_config_hash = Digest::hash(&input);
+        let genesis_config_hash = Digest::hash(&input, rng.gen_range(1..10) * 1024 * 1024);
         let protocol_version = ProtocolVersion::from_parts(rng.gen(), rng.gen(), rng.gen());
         let ee_config = rng.gen();
         RunGenesisRequest::new(genesis_config_hash, protocol_version, ee_config)

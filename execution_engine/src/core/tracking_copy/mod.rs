@@ -632,6 +632,7 @@ pub fn validate_query_proof(
     expected_first_key: &Key,
     path: &[String],
     expected_value: &StoredValue,
+    chunk_size: u32,
 ) -> Result<(), ValidationError> {
     if proofs.len() != path.len() + 1 {
         return Err(ValidationError::PathLengthDifferentThanProofLessOne);
@@ -646,7 +647,7 @@ pub fn validate_query_proof(
         return Err(ValidationError::UnexpectedKey);
     }
 
-    if hash != &first_proof.compute_state_hash()? {
+    if hash != &first_proof.compute_state_hash(chunk_size)? {
         return Err(ValidationError::InvalidProofHash);
     }
 
@@ -668,7 +669,7 @@ pub fn validate_query_proof(
             return Err(ValidationError::UnexpectedKey);
         }
 
-        if hash != &proof.compute_state_hash()? {
+        if hash != &proof.compute_state_hash(chunk_size)? {
             return Err(ValidationError::InvalidProofHash);
         }
 
@@ -688,6 +689,7 @@ pub fn validate_balance_proof(
     balance_proof: &TrieMerkleProof<Key, StoredValue>,
     expected_purse_key: Key,
     expected_motes: &U512,
+    chunk_size: u32,
 ) -> Result<(), ValidationError> {
     let expected_balance_key = expected_purse_key
         .into_uref()
@@ -698,7 +700,7 @@ pub fn validate_balance_proof(
         return Err(ValidationError::UnexpectedKey);
     }
 
-    if hash != &balance_proof.compute_state_hash()? {
+    if hash != &balance_proof.compute_state_hash(chunk_size)? {
         return Err(ValidationError::InvalidProofHash);
     }
 

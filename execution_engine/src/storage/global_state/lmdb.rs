@@ -46,9 +46,10 @@ impl LmdbGlobalState {
     pub fn empty(
         environment: Arc<LmdbEnvironment>,
         trie_store: Arc<LmdbTrieStore>,
+        chunk_size: u32,
     ) -> Result<Self, error::Error> {
         let root_hash: Digest = {
-            let (root_hash, root) = create_hashed_empty_trie::<Key, StoredValue>()?;
+            let (root_hash, root) = create_hashed_empty_trie::<Key, StoredValue>(chunk_size)?;
             let mut txn = environment.create_read_write_txn()?;
             trie_store.put(&mut txn, &root_hash, &root)?;
             txn.commit()?;
@@ -171,6 +172,7 @@ impl StateProvider for LmdbGlobalState {
         correlation_id: CorrelationId,
         prestate_hash: Digest,
         effects: AdditiveMap<Key, Transform>,
+        chunk_size: u32,
     ) -> Result<Digest, Self::Error> {
         commit::<LmdbEnvironment, LmdbTrieStore, _, Self::Error>(
             &self.environment,
@@ -178,6 +180,7 @@ impl StateProvider for LmdbGlobalState {
             correlation_id,
             prestate_hash,
             effects,
+            chunk_size,
         )
         .map_err(Into::into)
     }
@@ -201,6 +204,7 @@ impl StateProvider for LmdbGlobalState {
         &self,
         correlation_id: CorrelationId,
         trie: &Trie<Key, StoredValue>,
+        chunk_size: u32,
     ) -> Result<Digest, Self::Error> {
         let mut txn = self.environment.create_read_write_txn()?;
         let trie_hash = put_trie::<
@@ -209,7 +213,7 @@ impl StateProvider for LmdbGlobalState {
             lmdb::RwTransaction,
             LmdbTrieStore,
             Self::Error,
-        >(correlation_id, &mut txn, &self.trie_store, trie)?;
+        >(correlation_id, &mut txn, &self.trie_store, trie, chunk_size)?;
         txn.commit()?;
         Ok(trie_hash)
     }
@@ -219,6 +223,7 @@ impl StateProvider for LmdbGlobalState {
         &self,
         correlation_id: CorrelationId,
         trie_keys: Vec<Digest>,
+        chunk_size: u32,
     ) -> Result<Vec<Digest>, Self::Error> {
         let txn = self.environment.create_read_txn()?;
         let missing_descendants =
@@ -227,6 +232,7 @@ impl StateProvider for LmdbGlobalState {
                 &txn,
                 self.trie_store.deref(),
                 trie_keys,
+                chunk_size,
             )?;
         txn.commit()?;
         Ok(missing_descendants)
