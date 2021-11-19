@@ -37,19 +37,11 @@ impl FromBytes for ChunkWithProof {
 }
 
 impl ChunkWithProof {
-    #[cfg(test)]
-    /// 10 bytes for testing purposes.
-    pub const CHUNK_SIZE_BYTES: usize = 10;
-
-    #[cfg(not(test))]
-    /// 1 MiB
-    pub const CHUNK_SIZE_BYTES: usize = 1 << 20;
-
     /// Constructs the [`ChunkWithProof`] that contains the chunk of data with the appropriate index
     /// and the cryptographic proof.
     ///
     /// Empty data is always represented as single, empty chunk and not as zero chunks.
-    pub fn new(data: &[u8], index: u64) -> Result<Self, MerkleConstructionError> {
+    pub fn new(data: &[u8], index: u64, chunk_size: u32) -> Result<Self, MerkleConstructionError> {
         Ok(if data.is_empty() {
             ChunkWithProof {
                 proof: IndexedMerkleProof::new([Digest::blake2b_hash(&[])], index)?,
@@ -58,15 +50,14 @@ impl ChunkWithProof {
         } else {
             ChunkWithProof {
                 proof: IndexedMerkleProof::new(
-                    data.chunks(Self::CHUNK_SIZE_BYTES)
-                        .map(Digest::blake2b_hash),
+                    data.chunks(chunk_size as usize).map(Digest::blake2b_hash),
                     index,
                 )?,
                 chunk: Bytes::from(
-                    data.chunks(Self::CHUNK_SIZE_BYTES)
+                    data.chunks(chunk_size as usize)
                         .nth(index as usize)
                         .ok_or_else(|| MerkleConstructionError::IndexOutOfBounds {
-                            count: data.chunks(Self::CHUNK_SIZE_BYTES).len() as u64,
+                            count: data.chunks(chunk_size as usize).len() as u64,
                             index,
                         })?,
                 ),
@@ -107,6 +98,8 @@ mod tests {
 
     use crate::{chunk_with_proof::ChunkWithProof, error::MerkleConstructionError, Digest};
 
+    const CHUNK_SIZE_BYTES: u32 = 10;
+
     fn prepare_bytes(length: usize) -> Vec<u8> {
         let mut rng = rand::thread_rng();
 
@@ -116,9 +109,9 @@ mod tests {
     fn random_chunk_with_proof() -> ChunkWithProof {
         let mut rng = rand::thread_rng();
         let data: Vec<u8> = prepare_bytes(rng.gen_range(1..1024));
-        let index = rng.gen_range(0..data.chunks(ChunkWithProof::CHUNK_SIZE_BYTES).len() as u64);
+        let index = rng.gen_range(0..data.chunks(CHUNK_SIZE_BYTES as usize).len() as u64);
 
-        ChunkWithProof::new(&data, index).unwrap()
+        ChunkWithProof::new(&data, index, CHUNK_SIZE_BYTES).unwrap()
     }
 
     impl ChunkWithProof {
@@ -144,9 +137,7 @@ mod tests {
 
         fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
             (0usize..32usize)
-                .prop_map(|chunk_count| {
-                    TestDataSize(chunk_count * ChunkWithProof::CHUNK_SIZE_BYTES)
-                })
+                .prop_map(|chunk_count| TestDataSize(chunk_count * CHUNK_SIZE_BYTES as usize))
                 .boxed()
         }
     }
@@ -160,7 +151,7 @@ mod tests {
         fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
             (2usize..32usize)
                 .prop_map(|chunk_count| {
-                    TestDataSizeAtLeastTwoChunks(chunk_count * ChunkWithProof::CHUNK_SIZE_BYTES)
+                    TestDataSizeAtLeastTwoChunks(chunk_count * CHUNK_SIZE_BYTES as usize)
                 })
                 .boxed()
         }
@@ -170,14 +161,16 @@ mod tests {
     fn generates_valid_proof(test_data: TestDataSize) {
         for data in [prepare_bytes(test_data.0), vec![0u8; test_data.0]] {
             let number_of_chunks: u64 = data
-                .chunks(ChunkWithProof::CHUNK_SIZE_BYTES)
+                .chunks(CHUNK_SIZE_BYTES as usize)
                 .len()
                 .try_into()
                 .unwrap();
 
             assert!((0..number_of_chunks)
                 .into_iter()
-                .map(|chunk_index| { ChunkWithProof::new(data.as_slice(), chunk_index).unwrap() })
+                .map(|chunk_index| {
+                    ChunkWithProof::new(data.as_slice(), chunk_index, CHUNK_SIZE_BYTES).unwrap()
+                })
                 .all(|chunk_with_proof| chunk_with_proof.verify()));
         }
     }
@@ -185,23 +178,21 @@ mod tests {
     #[proptest]
     fn validate_chunks_against_hash_merkle_tree(test_data: TestDataSizeAtLeastTwoChunks) {
         // This test requires at least two chunks
-        assert!(test_data.0 >= ChunkWithProof::CHUNK_SIZE_BYTES * 2);
+        assert!(test_data.0 >= CHUNK_SIZE_BYTES as usize * 2);
 
         for data in [prepare_bytes(test_data.0), vec![0u8; test_data.0]] {
-            let expected_root = Digest::hash_merkle_tree(
-                data.chunks(ChunkWithProof::CHUNK_SIZE_BYTES)
-                    .map(Digest::hash),
-            );
+            let expected_root =
+                Digest::hash_merkle_tree(data.chunks(CHUNK_SIZE_BYTES as usize).map(Digest::hash));
 
             // Calculate proof with `ChunkWithProof`
             let ChunkWithProof {
                 proof: proof_0,
                 chunk: _,
-            } = ChunkWithProof::new(data.as_slice(), 0).unwrap();
+            } = ChunkWithProof::new(data.as_slice(), 0, CHUNK_SIZE_BYTES).unwrap();
             let ChunkWithProof {
                 proof: proof_1,
                 chunk: _,
-            } = ChunkWithProof::new(data.as_slice(), 1).unwrap();
+            } = ChunkWithProof::new(data.as_slice(), 1, CHUNK_SIZE_BYTES).unwrap();
 
             assert_eq!(proof_0.root_hash(), expected_root);
             assert_eq!(proof_1.root_hash(), expected_root);
@@ -211,7 +202,8 @@ mod tests {
     #[proptest]
     fn verifies_chunk_with_proofs(test_data: TestDataSize) {
         for data in [prepare_bytes(test_data.0), vec![0u8; test_data.0]] {
-            let chunk_with_proof = ChunkWithProof::new(data.as_slice(), 0).unwrap();
+            let chunk_with_proof =
+                ChunkWithProof::new(data.as_slice(), 0, CHUNK_SIZE_BYTES).unwrap();
             assert!(chunk_with_proof.verify());
 
             let chunk_with_incorrect_proof = chunk_with_proof.replace_first_proof();
@@ -222,7 +214,8 @@ mod tests {
     #[proptest]
     fn serde_deserialization_of_malformed_chunk_should_work(test_data: TestDataSize) {
         for data in [prepare_bytes(test_data.0), vec![0u8; test_data.0]] {
-            let chunk_with_proof = ChunkWithProof::new(data.as_slice(), 0).unwrap();
+            let chunk_with_proof =
+                ChunkWithProof::new(data.as_slice(), 0, CHUNK_SIZE_BYTES).unwrap();
 
             let json = serde_json::to_string(&chunk_with_proof).unwrap();
             assert_eq!(
@@ -240,7 +233,8 @@ mod tests {
     #[proptest]
     fn bytesrepr_deserialization_of_malformed_chunk_should_work(test_data: TestDataSize) {
         for data in [prepare_bytes(test_data.0), vec![0u8; test_data.0]] {
-            let chunk_with_proof = ChunkWithProof::new(data.as_slice(), 0).unwrap();
+            let chunk_with_proof =
+                ChunkWithProof::new(data.as_slice(), 0, CHUNK_SIZE_BYTES).unwrap();
 
             let bytes = chunk_with_proof
                 .to_bytes()
@@ -264,11 +258,12 @@ mod tests {
     fn returns_error_on_incorrect_index() {
         // This test needs specific data sizes, hence it doesn't use the proptest
 
-        let chunk_with_proof = ChunkWithProof::new(&[], 0).expect("should create with empty data");
+        let chunk_with_proof =
+            ChunkWithProof::new(&[], 0, CHUNK_SIZE_BYTES).expect("should create with empty data");
         assert!(chunk_with_proof.verify());
 
-        let chunk_with_proof =
-            ChunkWithProof::new(&[], 1).expect_err("should error with empty data and index > 0");
+        let chunk_with_proof = ChunkWithProof::new(&[], 1, CHUNK_SIZE_BYTES)
+            .expect_err("should error with empty data and index > 0");
         if let MerkleConstructionError::IndexOutOfBounds { count, index } = chunk_with_proof {
             assert_eq!(count, 1);
             assert_eq!(index, 1);
@@ -276,11 +271,20 @@ mod tests {
             panic!("expected MerkleConstructionError::IndexOutOfBounds");
         }
 
-        let data_larger_than_single_chunk = vec![0u8; ChunkWithProof::CHUNK_SIZE_BYTES * 10];
-        ChunkWithProof::new(data_larger_than_single_chunk.as_slice(), 9).unwrap();
+        let data_larger_than_single_chunk = vec![0u8; CHUNK_SIZE_BYTES as usize * 10];
+        ChunkWithProof::new(
+            data_larger_than_single_chunk.as_slice(),
+            9,
+            CHUNK_SIZE_BYTES,
+        )
+        .unwrap();
 
-        let chunk_with_proof =
-            ChunkWithProof::new(data_larger_than_single_chunk.as_slice(), 10).unwrap_err();
+        let chunk_with_proof = ChunkWithProof::new(
+            data_larger_than_single_chunk.as_slice(),
+            10,
+            CHUNK_SIZE_BYTES,
+        )
+        .unwrap_err();
         if let MerkleConstructionError::IndexOutOfBounds { count, index } = chunk_with_proof {
             assert_eq!(count, 10);
             assert_eq!(index, 10);
@@ -297,7 +301,7 @@ mod tests {
 
     #[test]
     fn chunk_with_empty_data_contains_a_single_proof() {
-        let chunk_with_proof = ChunkWithProof::new(&[], 0).unwrap();
+        let chunk_with_proof = ChunkWithProof::new(&[], 0, CHUNK_SIZE_BYTES).unwrap();
         assert_eq!(chunk_with_proof.proof.merkle_proof().len(), 1)
     }
 }
