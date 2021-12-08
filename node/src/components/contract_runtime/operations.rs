@@ -89,9 +89,6 @@ pub fn execute_finalized_block(
         state_root_hash = state_hash;
     }
 
-    // Flush once, after all deploys have been executed.
-    engine_state.flush_environment()?;
-
     if let Some(metrics) = metrics.as_ref() {
         metrics.exec_block.observe(start.elapsed().as_secs_f64());
     }
@@ -102,7 +99,7 @@ pub fn execute_finalized_block(
         if let Some(era_report) = finalized_block.era_report() {
             let StepSuccess {
                 post_state_hash,
-                execution_effect,
+                execution_journal: step_execution_journal,
             } = commit_step(
                 engine_state,
                 metrics.clone(),
@@ -118,12 +115,15 @@ pub fn execute_finalized_block(
                 GetEraValidatorsRequest::new(state_root_hash, protocol_version),
             )?;
             Some(StepEffectAndUpcomingEraValidators {
-                step_execution_effect: execution_effect,
+                step_execution_journal,
                 upcoming_era_validators,
             })
         } else {
             None
         };
+
+    // Flush once, after all deploys have been executed.
+    engine_state.flush_environment()?;
 
     // Update the metric.
     let block_height = finalized_block.height();
@@ -172,22 +172,22 @@ fn commit_execution_effects(
         .into_iter()
         .exactly_one()
         .map_err(|_| BlockExecutionError::MoreThanOneExecutionResult)?;
-    let execution_result = ExecutionResult::from(&ee_execution_result);
+    let json_execution_result = ExecutionResult::from(&ee_execution_result);
 
-    let execution_effect = match ee_execution_result {
+    let execution_effect: AdditiveMap<Key, Transform> = match ee_execution_result {
         EngineExecutionResult::Success {
-            execution_effect,
+            execution_journal,
             cost,
             ..
         } => {
             // We do want to see the deploy hash and cost in the logs.
             // We don't need to see the effects in the logs.
             debug!(?deploy_hash, %cost, "execution succeeded");
-            execution_effect
+            execution_journal
         }
         EngineExecutionResult::Failure {
             error,
-            execution_effect,
+            execution_journal,
             cost,
             ..
         } => {
@@ -195,16 +195,13 @@ fn commit_execution_effects(
             // We do want to see the deploy hash, error, and cost in the logs.
             // We don't need to see the effects in the logs.
             debug!(?deploy_hash, ?error, %cost, "execution failure");
-            execution_effect
+            execution_journal
         }
-    };
-    let new_state_root = commit_transforms(
-        engine_state,
-        metrics,
-        state_root_hash,
-        execution_effect.transforms,
-    )?;
-    Ok((new_state_root, execution_result))
+    }
+    .into();
+    let new_state_root =
+        commit_transforms(engine_state, metrics, state_root_hash, execution_effect)?;
+    Ok((new_state_root, json_execution_result))
 }
 
 fn commit_transforms(
@@ -276,7 +273,6 @@ fn commit_step(
         // Note: The Casper Network does not slash, but another network could
         slash_items: vec![],
         evict_items,
-        run_auction: true,
         next_era_id,
         era_end_timestamp_millis,
     };

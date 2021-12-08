@@ -93,11 +93,13 @@ reactor!(Reactor {
     events: {
         network = Event<Message>;
         deploy_fetcher = Event<Deploy>;
-        storage = StorageRequest;
     }
 
     requests: {
+        // This test contains no linear chain requests, so we panic if we receive any.
         NetworkRequest<NodeId, Message> -> network;
+        StorageRequest -> storage;
+        StateStoreRequest -> storage;
         FetcherRequest<NodeId, Deploy> -> deploy_fetcher;
 
         // The only contract runtime request will be the commit of genesis, which we discard.
@@ -240,7 +242,7 @@ async fn store_deploy(
     node_id: &NodeId,
     network: &mut Network<Reactor>,
     responder: Option<Responder<Result<(), deploy_acceptor::Error>>>,
-    mut rng: &mut TestRng,
+    rng: &mut TestRng,
 ) {
     network
         .process_injected_effect_on(node_id, announce_deploy_received(deploy.clone(), responder))
@@ -250,7 +252,7 @@ async fn store_deploy(
     network
         .crank_until(
             node_id,
-            &mut rng,
+            rng,
             move |event: &ReactorEvent| {
                 matches!(
                     event,

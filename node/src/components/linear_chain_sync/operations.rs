@@ -41,7 +41,7 @@ where
     loop {
         for peer in effect_builder.get_peers_in_random_order().await {
             trace!(
-                "Attempting to fetch {:?} with id {:?} from {:?}",
+                "attempting to fetch {:?} with id {:?} from {:?}",
                 T::TAG,
                 id,
                 peer
@@ -49,7 +49,7 @@ where
             match effect_builder.fetch::<T, NodeId>(id, peer).await {
                 Ok(fetched_data @ FetchedData::FromStorage { .. }) => {
                     trace!(
-                        "Did not get {:?} with id {:?} from {:?}, got from storage instead",
+                        "did not get {:?} with id {:?} from {:?}, got from storage instead",
                         T::TAG,
                         id,
                         peer
@@ -57,7 +57,7 @@ where
                     return Ok(fetched_data);
                 }
                 Ok(fetched_data @ FetchedData::FromPeer { .. }) => {
-                    trace!("Fetched {:?} with id {:?} from {:?}", T::TAG, id, peer);
+                    trace!("fetched {:?} with id {:?} from {:?}", T::TAG, id, peer);
                     return Ok(fetched_data);
                 }
                 Err(FetcherError::Absent { .. }) => {
@@ -65,7 +65,7 @@ where
                         ?id,
                         tag = ?T::TAG,
                         ?peer,
-                        "Fast sync could not fetch; trying next peer",
+                        "fast sync could not fetch; trying next peer",
                     )
                 }
                 Err(FetcherError::TimedOut { .. }) => {
@@ -73,7 +73,7 @@ where
                         ?id,
                         tag = ?T::TAG,
                         ?peer,
-                        "Peer timed out",
+                        "peer timed out",
                     );
                 }
                 Err(error @ FetcherError::CouldNotConstructGetRequest { .. }) => return Err(error),
@@ -374,7 +374,7 @@ where
                     warn!(
                         ?error,
                         ?peer,
-                        "Error validating block from peer; banning peer.",
+                        "error validating block from peer; banning peer.",
                     );
                     effect_builder.announce_disconnect_from_peer(peer).await;
                     continue;
@@ -755,7 +755,7 @@ pub(crate) async fn run_fast_sync_task(
     {
         warn!(
             ?trusted_block_header,
-            "Timestamp of trusted hash is older than \
+            "timestamp of trusted hash is older than \
              era_duration * (unbonding_delay - auction_delay)"
         );
     }
@@ -812,7 +812,7 @@ pub(crate) async fn run_fast_sync_task(
         height = most_recent_block_header.height(),
         now = %Timestamp::now(),
         block_timestamp = %most_recent_block_header.timestamp(),
-        "Fetching and executing blocks to synchronize to current",
+        "fetching and executing blocks to synchronize to current",
     );
     loop {
         let block = match fetch_and_store_next::<BlockWithMetadata>(
@@ -828,7 +828,7 @@ pub(crate) async fn run_fast_sync_task(
                     era = most_recent_block_header.era_id().value(),
                     height = most_recent_block_header.height(),
                     timestamp = %most_recent_block_header.timestamp(),
-                    "Couldn't download a more recent block; finishing syncing",
+                    "couldn't download a more recent block; finishing syncing",
                 );
                 break;
             }
@@ -849,7 +849,7 @@ pub(crate) async fn run_fast_sync_task(
             height = block.height(),
             now = %Timestamp::now(),
             block_timestamp = %block.timestamp(),
-            "Executing block",
+            "executing block",
         );
         let block_and_execution_effects = effect_builder
             .execute_finalized_block(
@@ -890,7 +890,7 @@ pub(crate) async fn run_fast_sync_task(
                 era = most_recent_block_header.era_id().value(),
                 height = most_recent_block_header.height(),
                 timestamp = %most_recent_block_header.timestamp(),
-                "Synchronized up to the current era; finishing syncing",
+                "synchronized up to the current era; finishing syncing",
             );
             break;
         }
@@ -901,7 +901,7 @@ pub(crate) async fn run_fast_sync_task(
         height = most_recent_block_header.height(),
         now = %Timestamp::now(),
         block_timestamp = %most_recent_block_header.timestamp(),
-        "Finished synchronizing",
+        "finished synchronizing",
     );
 
     Ok(most_recent_block_header)

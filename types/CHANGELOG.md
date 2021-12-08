@@ -13,6 +13,14 @@ All notable changes to this project will be documented in this file.  The format
 
 ## [Unreleased]
 
+### Changed
+* Increase `DICTIONARY_ITEM_KEY_MAX_LENGTH` to 128.
+* Change checksummed hex implementation to use 32 byte rather than 64 byte blake2b digests. 
+
+
+
+## [1.4.0] - 2021-10-04
+
 ### Added
 * Add `json-schema` feature, disabled by default, to enable many types to be used to produce JSON-schema data.
 * Add implicit `datasize` feature, disabled by default, to enable many types to derive the `DataSize` trait.
@@ -77,7 +85,8 @@ No changes.
 
 
 [Keep a Changelog]: https://keepachangelog.com/en/1.0.0
-[unreleased]: https://github.com/casper-network/casper-node/compare/v1.3.0...dev
+[unreleased]: https://github.com/casper-network/casper-node/compare/v1.4.0...dev
+[1.4.0]: https://github.com/casper-network/casper-node/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/casper-network/casper-node/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/casper-network/casper-node/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/casper-network/casper-node/compare/v1.0.1...v1.1.1

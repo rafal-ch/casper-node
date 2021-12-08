@@ -165,7 +165,7 @@ impl<REv: 'static> ComponentHarnessBuilder<REv> {
         let rng = self.rng.unwrap_or_else(TestRng::new);
 
         let scheduler = Box::leak(Box::new(Scheduler::new(QueueKind::weights())));
-        let event_queue_handle = EventQueueHandle::new(scheduler);
+        let event_queue_handle = EventQueueHandle::without_shutdown(scheduler);
         let effect_builder = EffectBuilder::new(event_queue_handle);
         let runtime = runtime::Builder::new_multi_thread()
             .enable_all()
@@ -218,7 +218,7 @@ impl<REv: 'static> ComponentHarness<REv> {
         let (sender, receiver) = oneshot::channel();
 
         // Create response function.
-        let responder = Responder::create(sender);
+        let responder = Responder::without_shutdown(sender);
 
         // Create the event for the component.
         let request_event = f(responder);
@@ -333,9 +333,9 @@ pub(crate) fn create_test_deploy(
     created_ago: TimeDiff,
     ttl: TimeDiff,
     now: Timestamp,
-    mut test_rng: &mut TestRng,
+    test_rng: &mut TestRng,
 ) -> Deploy {
-    Deploy::random_with_timestamp_and_ttl(&mut test_rng, now - created_ago, ttl)
+    Deploy::random_with_timestamp_and_ttl(test_rng, now - created_ago, ttl)
 }
 
 /// Creates a random deploy that is considered expired.

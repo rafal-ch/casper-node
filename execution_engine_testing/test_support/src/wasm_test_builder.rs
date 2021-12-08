@@ -23,7 +23,7 @@ use casper_execution_engine::{
             run_genesis_request::RunGenesisRequest,
             step::{StepRequest, StepSuccess},
             BalanceResult, EngineConfig, EngineState, GenesisSuccess, GetBidsRequest, QueryRequest,
-            QueryResult, SystemContractRegistry, UpgradeConfig, UpgradeSuccess,
+            QueryResult, StepError, SystemContractRegistry, UpgradeConfig, UpgradeSuccess,
         },
         execution,
     },
@@ -463,7 +463,7 @@ where
         self.transforms.extend(
             execution_results
                 .iter()
-                .map(|res| res.effect().transforms.clone()),
+                .map(|res| res.execution_journal().clone().into()),
         );
         self.exec_results.push(
             maybe_exec_results
@@ -548,15 +548,19 @@ where
     }
 
     /// Increments engine state.
-    pub fn step(&mut self, step_request: StepRequest) -> &mut Self {
-        let StepSuccess {
-            post_state_hash, ..
-        } = self
+    pub fn step(&mut self, step_request: StepRequest) -> Result<StepSuccess, StepError> {
+        let step_result = self
             .engine_state
-            .commit_step(CorrelationId::new(), step_request)
-            .expect("should step");
-        self.post_state_hash = Some(post_state_hash);
-        self
+            .commit_step(CorrelationId::new(), step_request);
+
+        if let Ok(StepSuccess {
+            post_state_hash, ..
+        }) = &step_result
+        {
+            self.post_state_hash = Some(*post_state_hash);
+        }
+
+        step_result
     }
 
     /// Expects a successful run
@@ -935,6 +939,24 @@ where
         }
 
         ret
+    }
+
+    /// Gets all `[Key::Balance]`s in global state.
+    pub fn get_balance_keys(&mut self) -> Vec<Key> {
+        let correlation_id = CorrelationId::new();
+        let state_root_hash = self.get_post_state_hash();
+
+        let tracking_copy = self
+            .engine_state
+            .tracking_copy(state_root_hash)
+            .unwrap()
+            .unwrap();
+
+        let reader = tracking_copy.reader();
+
+        reader
+            .keys_with_prefix(correlation_id, &[KeyTag::Balance as u8])
+            .unwrap_or_default()
     }
 
     /// Gets a stored value from a contract's named keys.
