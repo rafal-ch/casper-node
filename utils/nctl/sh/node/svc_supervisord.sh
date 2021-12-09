@@ -22,8 +22,25 @@ function do_node_start()
         _do_supervisord_start
     fi
 
+    # if [ -n "$TRUSTED_HASH" ]; then
+    #     _update_node_config_on_start "$PATH_TO_NODE_CONFIG" "$TRUSTED_HASH"
+    # fi
+
+
+    if [[ "$NODE_ID" -eq 6 ]]; then
+        log "XXXXX ... we're in node 6, applying patch"
+        log "   Old node config: $PATH_TO_NODE_CONFIG"
+        PATH_TO_NODE_CONFIG="$(get_path_to_node_config "$NODE_ID")/1_5_0/config.toml"
+        #$PATH_TO_NODE_CONFIG="/home/magister/Casper/casper-node/utils/nctl/assets/net-1/nodes/node-6/config/1_5_0/config.toml"
+        log "   New node config: $PATH_TO_NODE_CONFIG"
+    fi
+
+    log "XXXXX ... before updating node config"
     if [ -n "$TRUSTED_HASH" ]; then
+        log "XXXXX ... updating node config $PATH_TO_NODE_CONFIG with $TRUSTED_HASH"
         _update_node_config_on_start "$PATH_TO_NODE_CONFIG" "$TRUSTED_HASH"
+    else
+        log "XXXXX ... not updating"
     fi
 
     PROCESS_NAME=$(get_process_name_of_node_in_group "$NODE_ID")

@@ -31,7 +31,7 @@ function _main()
     fi
 
     pushd "$PATH_TO_REMOTES" || exit
-    log "... downloading launcher"
+    log "... downloading launcher from $_LAUNCHER_URL"
     curl -O "$_LAUNCHER_URL" > /dev/null 2>&1
     chmod +x ./casper-node-launcher
     popd    
