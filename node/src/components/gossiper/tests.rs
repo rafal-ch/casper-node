@@ -352,7 +352,7 @@ impl reactor::Reactor for Reactor {
                     let deploy = match bincode::deserialize::<FetchedOrNotFound<Deploy, DeployHash>>(
                         serialized_item,
                     ) {
-                        Ok(FetchedOrNotFound::Fetched(deploy)) => Box::new(deploy),
+                        Ok(FetchedOrNotFound::Fetched { item: deploy, .. }) => Box::new(deploy),
                         Ok(FetchedOrNotFound::NotFound(deploy_hash)) => {
                             return fatal!(
                                 effect_builder,

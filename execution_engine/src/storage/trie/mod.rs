@@ -381,6 +381,20 @@ impl TrieOrChunk {
             TrieOrChunk::ChunkWithProof(_) => 1,
         }
     }
+
+    /// Returns the ID of the trie or chunk.
+    pub fn id(&self) -> TrieOrChunkId {
+        match self {
+            TrieOrChunk::Trie(trie) => {
+                let node_bytes = trie.to_bytes().expect("Could not serialize trie to bytes");
+                TrieOrChunkId(0, Digest::hash(&node_bytes))
+            }
+            TrieOrChunk::ChunkWithProof(chunked_data) => TrieOrChunkId(
+                chunked_data.proof().index(),
+                chunked_data.proof().root_hash(),
+            ),
+        }
+    }
 }
 
 impl ToBytes for TrieOrChunk {

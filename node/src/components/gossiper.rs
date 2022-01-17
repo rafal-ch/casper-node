@@ -465,10 +465,11 @@ impl<T: Item + 'static, REv: ReactorEventT<T>> Gossiper<T, REv> {
     fn got_from_holder(
         &mut self,
         effect_builder: EffectBuilder<REv>,
+        item_id: T::Id,
         item: T,
         requester: NodeId,
     ) -> Effects<Event<T>> {
-        match NodeMessage::new_get_response(&FetchedOrNotFound::Fetched(item)) {
+        match NodeMessage::new_get_response(&FetchedOrNotFound::Fetched { item_id, item }) {
             Ok(message) => effect_builder.send_message(requester, message).ignore(),
             Err(error) => {
                 error!("failed to create get-response: {}", error);
@@ -564,7 +565,7 @@ where
                 requester,
                 result,
             } => match *result {
-                Ok(item) => self.got_from_holder(effect_builder, item, requester),
+                Ok(item) => self.got_from_holder(effect_builder, item_id, item, requester),
                 Err(error) => self.failed_to_get_from_holder(effect_builder, item_id, error),
             },
         };

@@ -68,22 +68,22 @@ where
 /// Message to be returned by a peer. Indicates if the item could be fetched or not.
 #[derive(Serialize, Deserialize)]
 pub enum FetchedOrNotFound<T, Id> {
-    Fetched(T),
+    Fetched { item_id: Id, item: T },
     NotFound(Id),
 }
 
 impl<T, Id> FetchedOrNotFound<T, Id> {
     /// Constructs a fetched or not found from an option and an id.
-    pub(crate) fn from_opt(id: Id, item: Option<T>) -> Self {
+    pub(crate) fn from_opt(item_id: Id, item: Option<T>) -> Self {
         match item {
-            Some(item) => FetchedOrNotFound::Fetched(item),
-            None => FetchedOrNotFound::NotFound(id),
+            Some(item) => FetchedOrNotFound::Fetched { item_id, item },
+            None => FetchedOrNotFound::NotFound(item_id),
         }
     }
 
-    /// Returns whether this reponse is a positive (fetched / "found") one.
+    /// Returns whether this response is a positive (fetched / "found") one.
     pub(crate) fn was_found(&self) -> bool {
-        matches!(self, FetchedOrNotFound::Fetched(_))
+        matches!(self, FetchedOrNotFound::Fetched { .. })
     }
 }
 
@@ -532,7 +532,7 @@ where
                 None => self.failed_to_get_from_storage(effect_builder, id, peer),
             },
             Event::GotRemotely {
-                merkle_tree_hash_activation: _,
+                item_id,
                 item,
                 source,
             } => {
@@ -543,11 +543,7 @@ where
                             warn!(?peer, ?err, ?item, "Peer sent invalid item, banning peer");
                             effect_builder.announce_disconnect_from_peer(peer).ignore()
                         } else {
-                            self.signal(
-                                item.id(self.merkle_tree_hash_activation()),
-                                Ok(FetchedData::FromPeer { item, peer }),
-                                peer,
-                            )
+                            self.signal(item_id, Ok(FetchedData::FromPeer { item, peer }), peer)
                         }
                     }
                     Source::Client | Source::Ourself => {

@@ -517,7 +517,7 @@ impl Reactor {
         F: FnOnce(T::Id) -> Result<Option<T>, E>,
         E: Debug,
     {
-        let id: T::Id = match bincode::deserialize(serialized_id) {
+        let item_id: T::Id = match bincode::deserialize(serialized_id) {
             Ok(id) => id,
             Err(error) => {
                 error!(
@@ -530,15 +530,15 @@ impl Reactor {
                 return Effects::new();
             }
         };
-        let fetched_or_not_found = match fetch_item(id) {
-            Ok(Some(item)) => FetchedOrNotFound::Fetched(item),
+        let fetched_or_not_found = match fetch_item(item_id) {
+            Ok(Some(item)) => FetchedOrNotFound::Fetched { item_id, item },
             Ok(None) => {
-                debug!(tag = ?T::TAG, ?id, ?sender, "failed to get item");
-                FetchedOrNotFound::NotFound(id)
+                debug!(tag = ?T::TAG, ?item_id, ?sender, "failed to get item");
+                FetchedOrNotFound::NotFound(item_id)
             }
             Err(error) => {
-                error!(tag = ?T::TAG, ?id, ?sender, ?error, "error getting item");
-                FetchedOrNotFound::NotFound(id)
+                error!(tag = ?T::TAG, ?item_id, ?sender, ?error, "error getting item");
+                FetchedOrNotFound::NotFound(item_id)
             }
         };
         match Message::new_get_response(&fetched_or_not_found) {
@@ -944,7 +944,7 @@ impl reactor::Reactor for Reactor {
                 ));
 
                 let event = fetcher::Event::GotRemotely {
-                    merkle_tree_hash_activation: None,
+                    item_id: *deploy.id(),
                     item: deploy,
                     source,
                 };
@@ -1159,7 +1159,7 @@ impl reactor::Reactor for Reactor {
                             FetchedOrNotFound<Deploy, DeployHash>,
                         >(serialized_item)
                         {
-                            Ok(FetchedOrNotFound::Fetched(deploy)) => Box::new(deploy),
+                            Ok(FetchedOrNotFound::Fetched { item: deploy, .. }) => Box::new(deploy),
                             Ok(FetchedOrNotFound::NotFound(deploy_hash)) => {
                                 error!(
                                     "peer did not have deploy with hash {}: {}",

@@ -1351,10 +1351,6 @@ impl Item for Deploy {
         // TODO: Validate approvals later, and only if the approvers are actually authorized!
         validate_deploy(self)
     }
-
-    fn id(&self, _merkle_tree_hash_activation: EraId) -> Self::Id {
-        *self.id()
-    }
 }
 
 impl Display for Deploy {

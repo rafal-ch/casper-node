@@ -37,10 +37,6 @@ impl Item for GossipedAddress {
     fn validate(&self, _merkle_tree_hash_activation: EraId) -> Result<(), Self::ValidationError> {
         Ok(())
     }
-
-    fn id(&self, _merkle_tree_hash_activation: EraId) -> Self::Id {
-        *self
-    }
 }
 
 impl From<GossipedAddress> for SocketAddr {

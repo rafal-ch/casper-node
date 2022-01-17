@@ -26,9 +26,7 @@ use crate::{
         requests::{FetcherRequest, TrieFetcherRequest},
         EffectBuilder, EffectExt, Effects, Responder,
     },
-    fatal,
-    types::Item,
-    NodeRng,
+    fatal, NodeRng,
 };
 
 #[derive(Debug, From, Error, Clone)]
@@ -176,7 +174,7 @@ where
             + From<ControlAnnouncement>
             + From<BlocklistAnnouncement<I>>,
     {
-        let TrieOrChunkId(_index, hash) = trie_or_chunk.id(self.merkle_tree_hash_activation);
+        let TrieOrChunkId(_index, hash) = trie_or_chunk.id();
         match trie_or_chunk {
             TrieOrChunk::Trie(trie) => match self.partial_chunks.remove(&hash) {
                 None => {

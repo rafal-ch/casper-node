@@ -633,7 +633,7 @@ impl reactor::Reactor for Reactor {
                     self.dispatch_event(effect_builder, rng, JoinerEvent::EventStreamServer(event));
 
                 let event = fetcher::Event::GotRemotely {
-                    merkle_tree_hash_activation: None,
+                    item_id: *deploy.id(),
                     item: deploy,
                     source,
                 };
@@ -858,10 +858,6 @@ impl reactor::Reactor for Reactor {
                     rng,
                     sender,
                     &message.0,
-                    self.chainspec_loader
-                        .chainspec()
-                        .protocol_config
-                        .merkle_tree_hash_activation,
                 )
             }
 
@@ -902,11 +898,6 @@ impl Reactor {
         sender: NodeId,
         message: NetResponse,
     ) -> Effects<JoinerEvent> {
-        let merkle_tree_hash_activation = self
-            .chainspec_loader
-            .chainspec()
-            .protocol_config
-            .merkle_tree_hash_activation;
         match message {
             NetResponse::Deploy(ref serialized_item) => {
                 reactor::handle_fetch_response::<Self, Deploy>(
@@ -915,7 +906,6 @@ impl Reactor {
                     rng,
                     sender,
                     serialized_item,
-                    merkle_tree_hash_activation,
                 )
             }
             NetResponse::Block(ref serialized_item) => {
@@ -925,7 +915,6 @@ impl Reactor {
                     rng,
                     sender,
                     serialized_item,
-                    merkle_tree_hash_activation,
                 )
             }
             NetResponse::GossipedAddress(_) => {
@@ -946,7 +935,6 @@ impl Reactor {
                     rng,
                     sender,
                     serialized_item,
-                    merkle_tree_hash_activation,
                 )
             }
             NetResponse::BlockHeaderByHash(ref serialized_item) => {
@@ -956,7 +944,6 @@ impl Reactor {
                     rng,
                     sender,
                     serialized_item,
-                    merkle_tree_hash_activation,
                 )
             }
             NetResponse::BlockHeaderAndFinalitySignaturesByHeight(ref serialized_item) => {
@@ -966,7 +953,6 @@ impl Reactor {
                     rng,
                     sender,
                     serialized_item,
-                    merkle_tree_hash_activation,
                 )
             }
         }

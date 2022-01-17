@@ -966,10 +966,6 @@ impl Item for BlockHeaderWithMetadata {
             merkle_tree_hash_activation,
         )
     }
-
-    fn id(&self, _merkle_tree_hash_activation: EraId) -> Self::Id {
-        self.block_header.height()
-    }
 }
 
 /// A node in a Merkle linked-list used for hashing data structures.
@@ -1645,10 +1641,6 @@ impl Item for Block {
     fn validate(&self, merkle_tree_hash_activation: EraId) -> Result<(), Self::ValidationError> {
         self.verify(merkle_tree_hash_activation)
     }
-
-    fn id(&self, _merkle_tree_hash_activation: EraId) -> Self::Id {
-        *self.hash()
-    }
 }
 
 /// A wrapper around `Block` for the purposes of fetching blocks by height in linear chain.
@@ -1709,10 +1701,6 @@ impl Item for BlockWithMetadata {
             merkle_tree_hash_activation,
         )?;
         Ok(())
-    }
-
-    fn id(&self, _merkle_tree_hash_activation: EraId) -> Self::Id {
-        self.block.height()
     }
 }
 

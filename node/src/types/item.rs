@@ -10,8 +10,7 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 use thiserror::Error;
 
 use casper_execution_engine::storage::trie::{TrieOrChunk, TrieOrChunkId};
-use casper_hashing::Digest;
-use casper_types::{bytesrepr::ToBytes, EraId};
+use casper_types::EraId;
 
 use crate::types::{BlockHash, BlockHeader};
 
@@ -65,9 +64,6 @@ pub(crate) trait Item:
 
     /// Checks cryptographic validity of the item, and returns an error if invalid.
     fn validate(&self, merkle_tree_hash_activation: EraId) -> Result<(), Self::ValidationError>;
-
-    /// The ID of the specific item.
-    fn id(&self, merkle_tree_hash_activation: EraId) -> Self::Id;
 }
 
 /// Error type simply conveying that chunk validation failed.
@@ -89,19 +85,6 @@ impl Item for TrieOrChunk {
             }
         }
     }
-
-    fn id(&self, _merkle_tree_hash_activation: EraId) -> Self::Id {
-        match self {
-            TrieOrChunk::Trie(trie) => {
-                let node_bytes = trie.to_bytes().expect("Could not serialize trie to bytes");
-                TrieOrChunkId(0, Digest::hash(&node_bytes))
-            }
-            TrieOrChunk::ChunkWithProof(chunked_data) => TrieOrChunkId(
-                chunked_data.proof().index(),
-                chunked_data.proof().root_hash(),
-            ),
-        }
-    }
 }
 
 impl Item for BlockHeader {
@@ -112,9 +95,5 @@ impl Item for BlockHeader {
 
     fn validate(&self, _merkle_tree_hash_activation: EraId) -> Result<(), Self::ValidationError> {
         Ok(())
-    }
-
-    fn id(&self, merkle_tree_hash_activation: EraId) -> Self::Id {
-        self.hash(merkle_tree_hash_activation)
     }
 }
