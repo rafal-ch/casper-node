@@ -1110,6 +1110,59 @@ fn persist_blocks_deploys_and_deploy_metadata_across_instantiations() {
 }
 
 #[test]
+fn hard_reset_should_remove_blocks_regardless_the_protocol_version() {
+    let mut harness = ComponentHarness::default();
+
+    // `verifiable_chunked_hash_activation` can be chosen arbitrarily
+    let verifiable_chunked_hash_activation = EraId::from(harness.rng.gen_range(0..=10));
+
+    let block_1 = Block::random_with_specifics(
+        &mut harness.rng,
+        EraId::from(1),
+        12,
+        ProtocolVersion::from_parts(0, 0, 0),
+        false,
+        verifiable_chunked_hash_activation,
+    );
+    let block_2 = Block::random_with_specifics(
+        &mut harness.rng,
+        EraId::from(1),
+        13,
+        ProtocolVersion::from_parts(u32::MAX, u32::MAX, u32::MAX),
+        false,
+        verifiable_chunked_hash_activation,
+    );
+    let blocks = [block_1, block_2];
+
+    // Store the blocks.
+    let mut storage = storage_fixture(&harness, verifiable_chunked_hash_activation);
+    blocks.iter().for_each(|block| {
+        assert!(put_block(
+            &mut harness,
+            &mut storage,
+            Box::new(block.clone())
+        ))
+    });
+
+    // Assert both blocks exist.
+    blocks.iter().for_each(|block| {
+        assert!(get_block(&mut harness, &mut storage, *block.hash()).is_some());
+    });
+
+    // Create storage with hard reset.
+    let mut hard_reset_storage = storage_fixture_with_hard_reset(
+        &harness,
+        EraId::from(1),
+        verifiable_chunked_hash_activation,
+    );
+
+    // Expect both blocks to be deleted.
+    blocks.iter().for_each(|block| {
+        assert!(get_block(&mut harness, &mut hard_reset_storage, *block.hash()).is_none());
+    })
+}
+
+#[test]
 fn should_hard_reset() {
     let blocks_count = 8_usize;
     let blocks_per_era = 3;
