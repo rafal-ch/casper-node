@@ -35,9 +35,9 @@
 //! The storage component itself is panic free and in general reports three classes of errors:
 //! Corruption, temporary resource exhaustion and potential bugs.
 
+mod disjoint_sequences;
 mod lmdb_ext;
 mod object_pool;
-
 #[cfg(test)]
 mod tests;
 
@@ -97,6 +97,7 @@ use crate::{
     utils::{display_error, WithDir},
     NodeRng,
 };
+use disjoint_sequences::DisjointSequences;
 use lmdb_ext::{LmdbExtError, TransactionExt, WriteTransactionExt};
 use object_pool::ObjectPool;
 
@@ -358,6 +359,9 @@ pub struct Storage {
     state_store_db: Database,
     /// A map of block height to block ID.
     block_height_index: BTreeMap<u64, BlockHash>,
+    /// A set of disjoint sequences of block heights of blocks which are fully stored (not just the
+    /// headers).
+    disjoint_block_height_sequences: DisjointSequences,
     /// A map of era ID to switch block ID.
     switch_block_era_id_index: BTreeMap<EraId, BlockHash>,
     /// A map of deploy hashes to hashes of blocks containing them.
@@ -532,6 +536,7 @@ impl Storage {
 
         let mut deleted_block_hashes = HashSet::new();
         let mut deleted_block_body_hashes_v1 = HashSet::new();
+        let mut full_block_heights = Vec::with_capacity(1_000_000);
         // Note: `iter_start` has an undocumented panic if called on an empty database. We rely on
         //       the iterator being at the start when created.
         for (raw_key, raw_val) in cursor.iter() {
@@ -603,11 +608,15 @@ impl Storage {
                     block_header.hash(verifiable_chunked_hash_activation),
                     &block_body,
                 )?;
+
+                full_block_heights.push(block_header.height());
             }
         }
         info!("block store reindexing complete");
         drop(cursor);
         block_txn.commit()?;
+
+        let disjoint_block_height_sequences = DisjointSequences::from(full_block_heights);
 
         let deleted_block_hashes_raw = deleted_block_hashes.iter().map(BlockHash::as_ref).collect();
 
@@ -655,6 +664,7 @@ impl Storage {
             transfer_db,
             state_store_db,
             block_height_index,
+            disjoint_block_height_sequences,
             switch_block_era_id_index,
             deploy_hash_index,
             enable_mem_deduplication: config.enable_mem_deduplication,
@@ -1135,6 +1145,12 @@ impl Storage {
                 txn.commit()?;
                 responder.respond(true).ignore()
             }
+            StorageRequest::GetLowestContiguousBlockHeight { responder } => {
+                let result = self
+                    .disjoint_block_height_sequences
+                    .highest_sequence_low_value();
+                responder.respond(result).ignore()
+            }
         })
     }
 
@@ -1206,6 +1222,7 @@ impl Storage {
             block.body(),
         )?;
         txn.commit()?;
+        self.disjoint_block_height_sequences.insert(block.height());
         Ok(true)
     }
 
