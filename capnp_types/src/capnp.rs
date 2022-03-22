@@ -7,6 +7,8 @@ pub mod cl_value_capnp;
 #[allow(unused)]
 pub mod deploy_info_capnp;
 #[allow(unused)]
+pub mod era_report_capnp;
+#[allow(unused)]
 pub mod global_state_capnp;
 #[allow(unused)]
 pub mod hash_with_32_bytes_capnp;

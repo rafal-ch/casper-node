@@ -27,3 +27,11 @@ struct WeightMap(Key) {
     value @1 :UInt8;
   }
 }
+
+struct RewardsMap(Key) {
+  entries @0 :List(Entry);
+  struct Entry {
+    key @0 :Key;
+    value @1 :UInt64;
+  }
+}
