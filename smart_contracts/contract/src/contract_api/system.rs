@@ -35,6 +35,7 @@ fn get_system_contract(system_contract: SystemContractType) -> ContractHash {
             api_error::result_from(value).map(|_| hash_data_raw)
         };
         // Revert for any possible error that happened on host side
+        #[allow(clippy::redundant_closure)] // false positive
         let contract_hash_bytes = result.unwrap_or_else(|e| runtime::revert(e));
         // Deserializes a valid URef passed from the host side
         bytesrepr::deserialize(contract_hash_bytes.to_vec()).unwrap_or_revert()
@@ -73,19 +74,18 @@ pub fn get_auction() -> ContractHash {
 /// Creates a new empty purse and returns its [`URef`].
 pub fn create_purse() -> URef {
     let purse_non_null_ptr = contract_api::alloc_bytes(UREF_SERIALIZED_LENGTH);
-    unsafe {
-        let ret = ext_ffi::casper_create_purse(purse_non_null_ptr.as_ptr(), UREF_SERIALIZED_LENGTH);
-        if ret == 0 {
-            let bytes = Vec::from_raw_parts(
-                purse_non_null_ptr.as_ptr(),
-                UREF_SERIALIZED_LENGTH,
-                UREF_SERIALIZED_LENGTH,
-            );
-            bytesrepr::deserialize(bytes).unwrap_or_revert()
-        } else {
-            runtime::revert(ApiError::PurseNotCreated)
-        }
-    }
+    let ret = unsafe {
+        ext_ffi::casper_create_purse(purse_non_null_ptr.as_ptr(), UREF_SERIALIZED_LENGTH)
+    };
+    api_error::result_from(ret).unwrap_or_revert();
+    let bytes = unsafe {
+        Vec::from_raw_parts(
+            purse_non_null_ptr.as_ptr(),
+            UREF_SERIALIZED_LENGTH,
+            UREF_SERIALIZED_LENGTH,
+        )
+    };
+    bytesrepr::deserialize(bytes).unwrap_or_revert()
 }
 
 /// Returns the balance in motes of the given purse.

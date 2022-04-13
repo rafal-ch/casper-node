@@ -12,23 +12,24 @@ use std::{
 use lmdb::DatabaseFlags;
 use log::LevelFilter;
 
-use bytesrepr::FromBytes;
 use casper_execution_engine::{
     core::{
-        engine_state,
         engine_state::{
+            self,
             era_validators::GetEraValidatorsRequest,
             execute_request::ExecuteRequest,
             execution_result::ExecutionResult,
             run_genesis_request::RunGenesisRequest,
             step::{StepRequest, StepSuccess},
-            BalanceResult, EngineConfig, EngineState, GenesisSuccess, GetBidsRequest, QueryRequest,
-            QueryResult, StepError, SystemContractRegistry, UpgradeConfig, UpgradeSuccess,
+            BalanceResult, EngineConfig, EngineState, Error, GenesisSuccess, GetBidsRequest,
+            QueryRequest, QueryResult, RewardItem, StepError, SystemContractRegistry,
+            UpgradeConfig, UpgradeSuccess,
         },
         execution,
     },
     shared::{
         additive_map::AdditiveMap,
+        execution_journal::ExecutionJournal,
         logging::{self, Settings, Style},
         newtypes::CorrelationId,
         transform::Transform,
@@ -36,32 +37,36 @@ use casper_execution_engine::{
     },
     storage::{
         global_state::{
-            in_memory::InMemoryGlobalState, lmdb::LmdbGlobalState, StateProvider, StateReader,
+            in_memory::InMemoryGlobalState, lmdb::LmdbGlobalState, scratch::ScratchGlobalState,
+            CommitProvider, StateProvider, StateReader,
         },
         transaction_source::lmdb::LmdbEnvironment,
-        trie::merkle_proof::TrieMerkleProof,
+        trie::{merkle_proof::TrieMerkleProof, Trie},
         trie_store::lmdb::LmdbTrieStore,
     },
 };
 use casper_hashing::Digest;
 use casper_types::{
     account::{Account, AccountHash},
-    bytesrepr, runtime_args,
+    bytesrepr::{self, FromBytes},
+    runtime_args,
     system::{
         auction::{
-            Bids, EraValidators, UnbondingPurses, ValidatorWeights, ARG_ERA_END_TIMESTAMP_MILLIS,
-            ARG_EVICTED_VALIDATORS, AUCTION_DELAY_KEY, ERA_ID_KEY, METHOD_RUN_AUCTION,
+            Bids, EraValidators, UnbondingPurses, ValidatorWeights, WithdrawPurses,
+            ARG_ERA_END_TIMESTAMP_MILLIS, ARG_EVICTED_VALIDATORS, AUCTION_DELAY_KEY, ERA_ID_KEY,
+            METHOD_RUN_AUCTION,
         },
         mint::TOTAL_SUPPLY_KEY,
         AUCTION, HANDLE_PAYMENT, MINT, STANDARD_PAYMENT,
     },
     CLTyped, CLValue, Contract, ContractHash, ContractPackage, ContractPackageHash, ContractWasm,
-    DeployHash, DeployInfo, EraId, Gas, Key, KeyTag, PublicKey, RuntimeArgs, StoredValue, Transfer,
-    TransferAddr, URef, U512,
+    DeployHash, DeployInfo, EraId, Gas, Key, KeyTag, ProtocolVersion, PublicKey, RuntimeArgs,
+    StoredValue, Transfer, TransferAddr, URef, U512,
 };
 
 use crate::{
-    utils, ExecuteRequestBuilder, DEFAULT_PROPOSER_ADDR, DEFAULT_PROTOCOL_VERSION, SYSTEM_ADDR,
+    utils, ExecuteRequestBuilder, StepRequestBuilder, DEFAULT_AUCTION_DELAY, DEFAULT_PROPOSER_ADDR,
+    DEFAULT_PROTOCOL_VERSION, SYSTEM_ADDR,
 };
 
 /// LMDB initial map size is calculated based on DEFAULT_LMDB_PAGES and systems page size.
@@ -87,23 +92,21 @@ pub struct WasmTestBuilder<S> {
     /// [`ExecutionResult`] is wrapped in [`Rc`] to work around a missing [`Clone`] implementation
     exec_results: Vec<Vec<Rc<ExecutionResult>>>,
     upgrade_results: Vec<Result<UpgradeSuccess, engine_state::Error>>,
+    /// Genesis hash.
     genesis_hash: Option<Digest>,
+    /// Post state hash.
     post_state_hash: Option<Digest>,
     /// Cached transform maps after subsequent successful runs i.e. `transforms[0]` is for first
     /// exec call etc.
-    transforms: Vec<AdditiveMap<Key, Transform>>,
+    transforms: Vec<ExecutionJournal>,
     /// Cached genesis transforms
     genesis_account: Option<Account>,
     /// Genesis transforms
     genesis_transforms: Option<AdditiveMap<Key, Transform>>,
-    /// Mint contract key
-    mint_contract_hash: Option<ContractHash>,
-    /// Handle payment contract key
-    handle_payment_contract_hash: Option<ContractHash>,
-    /// Standard payment contract key
-    standard_payment_hash: Option<ContractHash>,
-    /// Auction contract key
-    auction_contract_hash: Option<ContractHash>,
+    /// Scratch global state used for in-memory execution and commit optimization.
+    scratch_engine_state: Option<EngineState<ScratchGlobalState>>,
+    /// System contract registry
+    system_contract_registry: Option<SystemContractRegistry>,
 }
 
 impl<S> WasmTestBuilder<S> {
@@ -130,10 +133,8 @@ impl Default for InMemoryWasmTestBuilder {
             transforms: Vec::new(),
             genesis_account: None,
             genesis_transforms: None,
-            mint_contract_hash: None,
-            handle_payment_contract_hash: None,
-            standard_payment_hash: None,
-            auction_contract_hash: None,
+            scratch_engine_state: None,
+            system_contract_registry: None,
         }
     }
 }
@@ -151,10 +152,8 @@ impl<S> Clone for WasmTestBuilder<S> {
             transforms: self.transforms.clone(),
             genesis_account: self.genesis_account.clone(),
             genesis_transforms: self.genesis_transforms.clone(),
-            mint_contract_hash: self.mint_contract_hash,
-            handle_payment_contract_hash: self.handle_payment_contract_hash,
-            standard_payment_hash: self.standard_payment_hash,
-            auction_contract_hash: self.auction_contract_hash,
+            scratch_engine_state: None,
+            system_contract_registry: self.system_contract_registry.clone(),
         }
     }
 }
@@ -164,14 +163,14 @@ impl InMemoryWasmTestBuilder {
     pub fn new(
         global_state: InMemoryGlobalState,
         engine_config: EngineConfig,
-        post_state_hash: Digest,
+        maybe_post_state_hash: Option<Digest>,
     ) -> Self {
         Self::initialize_logging();
         let engine_state = EngineState::new(global_state, engine_config);
         WasmTestBuilder {
             engine_state: Rc::new(engine_state),
-            genesis_hash: Some(post_state_hash),
-            post_state_hash: Some(post_state_hash),
+            genesis_hash: maybe_post_state_hash,
+            post_state_hash: maybe_post_state_hash,
             ..Default::default()
         }
     }
@@ -213,10 +212,8 @@ impl LmdbWasmTestBuilder {
             transforms: Vec::new(),
             genesis_account: None,
             genesis_transforms: None,
-            mint_contract_hash: None,
-            handle_payment_contract_hash: None,
-            standard_payment_hash: None,
-            auction_contract_hash: None,
+            scratch_engine_state: None,
+            system_contract_registry: None,
         }
     }
 
@@ -277,10 +274,8 @@ impl LmdbWasmTestBuilder {
             transforms: Vec::new(),
             genesis_account: None,
             genesis_transforms: None,
-            mint_contract_hash: None,
-            handle_payment_contract_hash: None,
-            standard_payment_hash: None,
-            auction_contract_hash: None,
+            scratch_engine_state: None,
+            system_contract_registry: None,
         }
     }
 
@@ -298,11 +293,65 @@ impl LmdbWasmTestBuilder {
         path.push(GLOBAL_STATE_DIR);
         path
     }
+
+    /// Execute and commit transforms from an ExecuteRequest into a scratch global state.
+    /// You MUST call scratch_flush to flush these changes to LmdbGlobalState.
+    pub fn scratch_exec_and_commit(&mut self, mut exec_request: ExecuteRequest) -> &mut Self {
+        if self.scratch_engine_state.is_none() {
+            self.scratch_engine_state = Some(self.engine_state.get_scratch_engine_state());
+        }
+
+        let cached_state = self
+            .scratch_engine_state
+            .as_ref()
+            .expect("scratch state should exist");
+
+        // Scratch still requires that one deploy be executed and committed at a time.
+        let exec_request = {
+            let hash = self.post_state_hash.expect("expected post_state_hash");
+            exec_request.parent_state_hash = hash;
+            exec_request
+        };
+
+        let mut exec_results = Vec::new();
+        // First execute the request against our scratch global state.
+        let maybe_exec_results = cached_state.run_execute(CorrelationId::new(), exec_request);
+        for execution_result in maybe_exec_results.unwrap() {
+            let journal = execution_result.execution_journal().clone();
+            let transforms: AdditiveMap<Key, Transform> = journal.clone().into();
+            let _post_state_hash = cached_state
+                .apply_effect(
+                    CorrelationId::new(),
+                    self.post_state_hash.expect("requires a post_state_hash"),
+                    transforms,
+                )
+                .expect("should commit");
+
+            // Save transforms and execution results for WasmTestBuilder.
+            self.transforms.push(journal);
+            exec_results.push(Rc::new(execution_result))
+        }
+        self.exec_results.push(exec_results);
+        self
+    }
+
+    /// Commit scratch to global state, and reset the scratch cache.
+    pub fn write_scratch_to_lmdb(&mut self) -> &mut Self {
+        let prestate_hash = self.post_state_hash.expect("Should have genesis hash");
+        if let Some(scratch) = self.scratch_engine_state.take() {
+            self.post_state_hash = Some(
+                self.engine_state
+                    .write_scratch_to_lmdb(prestate_hash, scratch.into_inner())
+                    .unwrap(),
+            );
+        }
+        self
+    }
 }
 
 impl<S> WasmTestBuilder<S>
 where
-    S: StateProvider,
+    S: StateProvider + CommitProvider,
     engine_state::Error: From<S::Error>,
     S::Error: Into<execution::Error>,
 {
@@ -320,6 +369,7 @@ where
                 run_genesis_request.genesis_config_hash(),
                 run_genesis_request.protocol_version(),
                 run_genesis_request.ee_config(),
+                run_genesis_request.chainspec_registry().clone(),
             )
             .expect("Unable to get genesis response");
 
@@ -329,13 +379,15 @@ where
         let genesis_account =
             utils::get_account(&transforms, &system_account).expect("Unable to get system account");
 
-        let registry = match self.query(
+        self.system_contract_registry = match self.query(
             Some(post_state_hash),
             Key::SystemContractRegistry,
             &empty_path,
         ) {
             Ok(StoredValue::CLValue(cl_registry)) => {
-                CLValue::into_t::<SystemContractRegistry>(cl_registry).unwrap()
+                let system_contract_registry =
+                    CLValue::into_t::<SystemContractRegistry>(cl_registry).unwrap();
+                Some(system_contract_registry)
             }
             Ok(_) => panic!("Failed to get system registry"),
             Err(err) => panic!("{}", err),
@@ -343,19 +395,6 @@ where
 
         self.genesis_hash = Some(post_state_hash);
         self.post_state_hash = Some(post_state_hash);
-        self.mint_contract_hash = Some(*registry.get(MINT).expect("should have mint hash"));
-        self.handle_payment_contract_hash = Some(
-            *registry
-                .get(HANDLE_PAYMENT)
-                .expect("should have handle payment hash"),
-        );
-        self.standard_payment_hash = Some(
-            *registry
-                .get(STANDARD_PAYMENT)
-                .expect("should have standard payment hash"),
-        );
-        self.auction_contract_hash =
-            Some(*registry.get(AUCTION).expect("should have auction hash"));
         self.genesis_account = Some(genesis_account);
         self.genesis_transforms = Some(transforms);
         self
@@ -431,7 +470,8 @@ where
     /// Panics if the total supply can't be found.
     pub fn total_supply(&self, maybe_post_state: Option<Digest>) -> U512 {
         let mint_key: Key = self
-            .mint_contract_hash
+            .get_system_contract_hash(MINT)
+            .cloned()
             .expect("should have mint_contract_hash")
             .into();
 
@@ -453,6 +493,7 @@ where
             exec_request.parent_state_hash = hash;
             exec_request
         };
+
         let maybe_exec_results = self
             .engine_state
             .run_execute(CorrelationId::new(), exec_request);
@@ -463,7 +504,7 @@ where
         self.transforms.extend(
             execution_results
                 .iter()
-                .map(|res| res.execution_journal().clone().into()),
+                .map(|res| res.execution_journal().clone()),
         );
         self.exec_results.push(
             maybe_exec_results
@@ -481,7 +522,7 @@ where
 
         let effects = self.transforms.last().cloned().unwrap_or_default();
 
-        self.commit_transforms(prestate_hash, effects)
+        self.commit_transforms(prestate_hash, effects.into())
     }
 
     /// Runs a commit request, expects a successful response, and
@@ -521,6 +562,13 @@ where
         }) = result
         {
             self.post_state_hash = Some(post_state_hash);
+
+            if let Ok(StoredValue::CLValue(cl_registry)) =
+                self.query(self.post_state_hash, Key::SystemContractRegistry, &[])
+            {
+                let registry = CLValue::into_t::<SystemContractRegistry>(cl_registry).unwrap();
+                self.system_contract_registry = Some(registry);
+            }
         }
 
         self.upgrade_results.push(result);
@@ -567,8 +615,7 @@ where
     pub fn expect_success(&mut self) -> &mut Self {
         // Check first result, as only first result is interesting for a simple test
         let exec_results = self
-            .exec_results
-            .last()
+            .get_last_exec_results()
             .expect("Expected to be called after run()");
         let exec_result = exec_results
             .get(0)
@@ -577,7 +624,7 @@ where
         if exec_result.is_failure() {
             panic!(
                 "Expected successful execution result, but instead got: {:#?}",
-                exec_results,
+                exec_result,
             );
         }
         self
@@ -587,8 +634,7 @@ where
     pub fn expect_failure(&mut self) -> &mut Self {
         // Check first result, as only first result is interesting for a simple test
         let exec_results = self
-            .exec_results
-            .last()
+            .get_last_exec_results()
             .expect("Expected to be called after run()");
         let exec_result = exec_results
             .get(0)
@@ -597,7 +643,7 @@ where
         if exec_result.is_success() {
             panic!(
                 "Expected failed execution result, but instead got: {:?}",
-                exec_results,
+                exec_result,
             );
         }
 
@@ -606,31 +652,38 @@ where
 
     /// Returns `true` if the las exec had an error, otherwise returns false.
     pub fn is_error(&self) -> bool {
-        let exec_results = self
-            .exec_results
-            .last()
-            .expect("Expected to be called after run()");
-        let exec_result = exec_results
+        self.get_last_exec_results()
+            .expect("Expected to be called after run()")
             .get(0)
-            .expect("Unable to get first execution result");
-        exec_result.is_failure()
+            .expect("Unable to get first execution result")
+            .is_failure()
     }
 
     /// Returns an `Option<engine_state::Error>` if the last exec had an error.
     pub fn get_error(&self) -> Option<engine_state::Error> {
-        let exec_results = &self.get_exec_results();
-
-        let exec_result = exec_results
-            .last()
+        self.get_last_exec_results()
             .expect("Expected to be called after run()")
             .get(0)
-            .expect("Unable to get first deploy result");
-
-        exec_result.as_error().cloned()
+            .expect("Unable to get first deploy result")
+            .as_error()
+            .cloned()
     }
 
     /// Gets the transform map that's cached between runs
+    #[deprecated(
+        since = "2.1.0",
+        note = "Use `get_execution_journals` that returns transforms in the order they were created."
+    )]
     pub fn get_transforms(&self) -> Vec<AdditiveMap<Key, Transform>> {
+        self.transforms
+            .clone()
+            .into_iter()
+            .map(|journal| journal.into_iter().collect())
+            .collect()
+    }
+
+    /// Gets `ExecutionJournal`s of all passed runs.
+    pub fn get_execution_journals(&self) -> Vec<ExecutionJournal> {
         self.transforms.clone()
     }
 
@@ -643,26 +696,36 @@ where
 
     /// Returns the [`ContractHash`] of the mint, panics if it can't be found.
     pub fn get_mint_contract_hash(&self) -> ContractHash {
-        self.mint_contract_hash
+        self.get_system_contract_hash(MINT)
+            .cloned()
             .expect("Unable to obtain mint contract. Please run genesis first.")
     }
 
     /// Returns the [`ContractHash`] of the "handle payment" contract, panics if it can't be found.
     pub fn get_handle_payment_contract_hash(&self) -> ContractHash {
-        self.handle_payment_contract_hash
+        self.get_system_contract_hash(HANDLE_PAYMENT)
+            .cloned()
             .expect("Unable to obtain handle payment contract. Please run genesis first.")
     }
 
     /// Returns the [`ContractHash`] of the "standard payment" contract, panics if it can't be
     /// found.
     pub fn get_standard_payment_contract_hash(&self) -> ContractHash {
-        self.standard_payment_hash
+        self.get_system_contract_hash(STANDARD_PAYMENT)
+            .cloned()
             .expect("Unable to obtain standard payment contract. Please run genesis first.")
+    }
+
+    fn get_system_contract_hash(&self, contract_name: &str) -> Option<&ContractHash> {
+        self.system_contract_registry
+            .as_ref()
+            .and_then(|registry| registry.get(contract_name))
     }
 
     /// Returns the [`ContractHash`] of the "auction" contract, panics if it can't be found.
     pub fn get_auction_contract_hash(&self) -> ContractHash {
-        self.auction_contract_hash
+        self.get_system_contract_hash(AUCTION)
+            .cloned()
             .expect("Unable to obtain auction contract. Please run genesis first.")
     }
 
@@ -689,14 +752,18 @@ where
         &self.engine_state
     }
 
-    /// Returns the results of all execs.
-    pub fn get_exec_results(&self) -> &Vec<Vec<Rc<ExecutionResult>>> {
-        &self.exec_results
+    /// Returns the last results execs.
+    pub fn get_last_exec_results(&self) -> Option<Vec<Rc<ExecutionResult>>> {
+        let exec_results = self.exec_results.last()?;
+
+        Some(exec_results.iter().map(Rc::clone).collect())
     }
 
     /// Returns the results of a specific exec.
-    pub fn get_exec_result(&self, index: usize) -> Option<&Vec<Rc<ExecutionResult>>> {
-        self.exec_results.get(index)
+    pub fn get_exec_result(&self, index: usize) -> Option<Vec<Rc<ExecutionResult>>> {
+        let exec_results = self.exec_results.get(index)?;
+
+        Some(exec_results.iter().map(Rc::clone).collect())
     }
 
     /// Returns a count of exec results.
@@ -729,7 +796,8 @@ where
     /// Returns the "handle payment" contract, panics if it can't be found.
     pub fn get_handle_payment_contract(&self) -> Contract {
         let handle_payment_contract: Key = self
-            .handle_payment_contract_hash
+            .get_system_contract_hash(HANDLE_PAYMENT)
+            .cloned()
             .expect("should have handle payment contract uref")
             .into();
         self.query(None, handle_payment_contract, &[])
@@ -864,14 +932,33 @@ where
         utils::get_exec_costs(exec_results)
     }
 
-    /// Returns the `Gas` const of the last exec.
+    /// Returns the `Gas` cost of the last exec.
     pub fn last_exec_gas_cost(&self) -> Gas {
+        let exec_results = self
+            .get_last_exec_results()
+            .expect("Expected to be called after run()");
+        let exec_result = exec_results.get(0).expect("should have result");
+        exec_result.cost()
+    }
+
+    /// Returns the result of the last exec.
+    pub fn last_exec_result(&self) -> &ExecutionResult {
         let exec_results = self
             .exec_results
             .last()
             .expect("Expected to be called after run()");
-        let exec_result = exec_results.get(0).expect("should have result");
-        exec_result.cost()
+        exec_results.get(0).expect("should have result").as_ref()
+    }
+
+    /// Assert that last error is the expected one.
+    ///
+    /// NOTE: we're using string-based representation for checking equality
+    /// as the `Error` type does not implement `Eq` (many of its subvariants don't).
+    pub fn assert_error(&self, expected_error: Error) {
+        match self.get_error() {
+            Some(error) => assert_eq!(format!("{:?}", expected_error), format!("{:?}", error)),
+            None => panic!("expected error ({:?}) got success", expected_error),
+        }
     }
 
     /// Returns the error message of the last exec.
@@ -885,8 +972,12 @@ where
         let correlation_id = CorrelationId::new();
         let state_hash = self.get_post_state_hash();
         let request = GetEraValidatorsRequest::new(state_hash, *DEFAULT_PROTOCOL_VERSION);
+        let system_contract_registry = self
+            .system_contract_registry
+            .clone()
+            .expect("System contract registry not found. Please run genesis first.");
         self.engine_state
-            .get_era_validators(correlation_id, request)
+            .get_era_validators(correlation_id, Some(system_contract_registry), request)
             .expect("get era validators should not error")
     }
 
@@ -909,7 +1000,38 @@ where
     }
 
     /// Gets [`UnbondingPurses`].
-    pub fn get_withdraws(&mut self) -> UnbondingPurses {
+    pub fn get_unbonds(&mut self) -> UnbondingPurses {
+        let correlation_id = CorrelationId::new();
+        let state_root_hash = self.get_post_state_hash();
+
+        let tracking_copy = self
+            .engine_state
+            .tracking_copy(state_root_hash)
+            .unwrap()
+            .unwrap();
+
+        let reader = tracking_copy.reader();
+
+        let unbond_keys = reader
+            .keys_with_prefix(correlation_id, &[KeyTag::Unbond as u8])
+            .unwrap_or_default();
+
+        let mut ret = BTreeMap::new();
+
+        for key in unbond_keys.into_iter() {
+            let read_result = reader.read(correlation_id, &key);
+            if let (Key::Unbond(account_hash), Ok(Some(StoredValue::Unbonding(unbonding_purses)))) =
+                (key, read_result)
+            {
+                ret.insert(account_hash, unbonding_purses);
+            }
+        }
+
+        ret
+    }
+
+    /// Gets [`WithdrawPurses`].
+    pub fn get_withdraws(&mut self) -> WithdrawPurses {
         let correlation_id = CorrelationId::new();
         let state_root_hash = self.get_post_state_hash();
 
@@ -929,16 +1051,32 @@ where
 
         for key in withdraws_keys.into_iter() {
             let read_result = reader.read(correlation_id, &key);
-            if let (
-                Key::Withdraw(account_hash),
-                Ok(Some(StoredValue::Withdraw(unbonding_purses))),
-            ) = (key, read_result)
+            if let (Key::Withdraw(account_hash), Ok(Some(StoredValue::Withdraw(withdraw_purses)))) =
+                (key, read_result)
             {
-                ret.insert(account_hash, unbonding_purses);
+                ret.insert(account_hash, withdraw_purses);
             }
         }
 
         ret
+    }
+
+    /// Gets all `[Key::Balance]`s in global state.
+    pub fn get_balance_keys(&mut self) -> Vec<Key> {
+        let correlation_id = CorrelationId::new();
+        let state_root_hash = self.get_post_state_hash();
+
+        let tracking_copy = self
+            .engine_state
+            .tracking_copy(state_root_hash)
+            .unwrap()
+            .unwrap();
+
+        let reader = tracking_copy.reader();
+
+        reader
+            .keys_with_prefix(correlation_id, &[KeyTag::Balance as u8])
+            .unwrap_or_default()
     }
 
     /// Gets a stored value from a contract's named keys.
@@ -1018,5 +1156,49 @@ where
         self.upgrade_results = Vec::new();
         self.transforms = Vec::new();
         self
+    }
+
+    /// Advances eras by num_eras
+    pub fn advance_eras_by(
+        &mut self,
+        num_eras: u64,
+        reward_items: impl IntoIterator<Item = RewardItem>,
+    ) {
+        let step_request_builder = StepRequestBuilder::new()
+            .with_protocol_version(ProtocolVersion::V1_0_0)
+            .with_reward_items(reward_items)
+            .with_run_auction(true);
+
+        for _ in 0..num_eras {
+            let step_request = step_request_builder
+                .clone()
+                .with_parent_state_hash(self.get_post_state_hash())
+                .with_next_era_id(self.get_era().successor())
+                .build();
+
+            self.step(step_request)
+                .expect("failed to execute step request");
+        }
+    }
+
+    /// Advances eras by configured amount
+    pub fn advance_eras_by_default_auction_delay(
+        &mut self,
+        reward_items: impl IntoIterator<Item = RewardItem>,
+    ) {
+        self.advance_eras_by(DEFAULT_AUCTION_DELAY + 1, reward_items);
+    }
+
+    /// Advancess by a single era.
+    pub fn advance_era(&mut self, reward_items: impl IntoIterator<Item = RewardItem>) {
+        self.advance_eras_by(1, reward_items);
+    }
+
+    /// Returns a trie by hash.
+    pub fn get_trie(&mut self, state_hash: Digest) -> Option<Trie<Key, StoredValue>> {
+        self.engine_state
+            .get_trie_full(CorrelationId::default(), state_hash)
+            .unwrap()
+            .map(|bytes| bytesrepr::deserialize(bytes.into()).unwrap())
     }
 }

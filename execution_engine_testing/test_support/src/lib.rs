@@ -1,6 +1,6 @@
 //! A library to support testing of Wasm smart contracts for use on the Casper Platform.
 
-#![doc(html_root_url = "https://docs.rs/casper-engine-test-support/2.0.1")]
+#![doc(html_root_url = "https://docs.rs/casper-engine-test-support/2.1.0")]
 #![doc(
     html_favicon_url = "https://raw.githubusercontent.com/CasperLabs/casper-node/master/images/CasperLabs_Logo_Favicon_RGB_50px.png",
     html_logo_url = "https://raw.githubusercontent.com/CasperLabs/casper-node/master/images/CasperLabs_Logo_Symbol_RGB.png",
@@ -20,8 +20,7 @@ use once_cell::sync::Lazy;
 
 use casper_execution_engine::{
     core::engine_state::{
-        genesis::{ExecConfig, GenesisAccount, GenesisConfig},
-        run_genesis_request::RunGenesisRequest,
+        ChainspecRegistry, ExecConfig, GenesisAccount, GenesisConfig, RunGenesisRequest,
     },
     shared::{system_config::SystemConfig, wasm_config::WasmConfig},
 };
@@ -142,12 +141,16 @@ pub static DEFAULT_GENESIS_CONFIG: Lazy<GenesisConfig> = Lazy::new(|| {
         DEFAULT_EXEC_CONFIG.clone(),
     )
 });
+/// Default [`ChainspecRegistry`].
+pub static DEFAULT_CHAINSPEC_REGISTRY: Lazy<ChainspecRegistry> =
+    Lazy::new(|| ChainspecRegistry::new_with_genesis(&[1, 2, 3], &[4, 5, 6]));
 /// Default [`RunGenesisRequest`].
 pub static DEFAULT_RUN_GENESIS_REQUEST: Lazy<RunGenesisRequest> = Lazy::new(|| {
     RunGenesisRequest::new(
         *DEFAULT_GENESIS_CONFIG_HASH,
         *DEFAULT_PROTOCOL_VERSION,
         DEFAULT_EXEC_CONFIG.clone(),
+        DEFAULT_CHAINSPEC_REGISTRY.clone(),
     )
 });
 /// System address.

@@ -10,7 +10,6 @@ CARGO_PINNED_NIGHTLY := $(CARGO) +$(PINNED_NIGHTLY) $(CARGO_OPTS)
 CARGO := $(CARGO) $(CARGO_OPTS)
 
 DISABLE_LOGGING = RUST_LOG=MatchesNothing
-LEGACY = RUSTFLAGS='--cfg feature="casper-mainnet"'
 
 # Rust Contracts
 ALL_CONTRACTS    = $(shell find ./smart_contracts/contracts/[!.]*  -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)
@@ -73,6 +72,9 @@ resources/local/chainspec.toml: generate-chainspec.sh resources/local/chainspec.
 .PHONY: test-rs
 test-rs: resources/local/chainspec.toml
 	$(LEGACY) $(DISABLE_LOGGING) $(CARGO) test --all-features $(CARGO_FLAGS)
+
+.PHONY: resources/local/chainspec.toml
+test-rs-no-default-features:
 	cd smart_contracts/contract && $(DISABLE_LOGGING) $(CARGO) test $(CARGO_FLAGS) --no-default-features --features=version-sync
 
 .PHONY: test-as
@@ -80,7 +82,7 @@ test-as: setup-as
 	cd smart_contracts/contract_as && npm run asbuild && npm run test
 
 .PHONY: test
-test: test-rs test-as
+test: test-rs-no-default-features test-rs test-as
 
 .PHONY: test-contracts-rs
 test-contracts-rs: build-contracts-rs
@@ -94,6 +96,13 @@ test-contracts-as: build-contracts-rs build-contracts-as
 .PHONY: test-contracts
 test-contracts: test-contracts-rs test-contracts-as
 
+.PHONY: check-std-features
+check-std-features:
+	cd types && $(CARGO) check --all-targets --no-default-features --features=std
+	cd types && $(CARGO) check --all-targets --features=std
+	cd smart_contracts/contract && $(CARGO) check --all-targets --no-default-features --features=std
+	cd smart_contracts/contract && $(CARGO) check --all-targets --features=std
+
 .PHONY: check-format
 check-format:
 	$(CARGO_PINNED_NIGHTLY) fmt --all -- --check
@@ -106,14 +115,31 @@ lint-contracts-rs:
 	cd smart_contracts/contracts && $(CARGO) clippy $(patsubst %, -p %, $(ALL_CONTRACTS)) -- -D warnings -A renamed_and_removed_lints
 
 .PHONY: lint
-lint: lint-contracts-rs
+lint: lint-contracts-rs lint-default-features lint-all-features lint-smart-contracts
+
+.PHONY: lint-default-features
+lint-default-features:
 	$(CARGO) clippy --all-targets -- -D warnings -A renamed_and_removed_lints
+
+.PHONY: lint-all-features
+lint-all-features:
 	$(CARGO) clippy --all-targets --all-features -- -D warnings -A renamed_and_removed_lints
+
+.PHONY: lint-smart-contracts
+lint-smart-contracts:
 	cd smart_contracts/contract && $(CARGO) clippy --all-targets -- -D warnings -A renamed_and_removed_lints
 
-.PHONY: audit
-audit:
+.PHONY: audit-rs
+audit-rs:
 	$(CARGO) audit --ignore RUSTSEC-2020-0071 --ignore RUSTSEC-2020-0159
+
+.PHONY: audit-as
+audit-as:
+	@# Runs a vulnerability scan that fails if there are prod vulnerabilities with a moderate level or above.
+	cd smart_contracts/contract_as && $(NPM) audit --production --audit-level=moderate
+
+.PHONY: audit
+audit: audit-rs audit-as
 
 .PHONY: doc
 doc:
@@ -126,7 +152,9 @@ check-rs: \
 	doc \
 	lint \
 	audit \
+	check-std-features \
 	test-rs \
+	test-rs-no-default-features \
 	test-contracts-rs
 
 .PHONY: check
@@ -147,14 +175,6 @@ clean:
 .PHONY: build-for-packaging
 build-for-packaging: build-client-contracts
 	$(LEGACY) $(CARGO) build --release
-
-.PHONY: deb
-deb: setup-rs build-for-packaging
-	cd client && $(LEGACY) $(CARGO) deb -p casper-client --no-build
-
-.PHONY: rpm
-rpm: setup-rs
-	cd client && $(CARGO) rpm build
 
 .PHONY: package
 package:
@@ -179,15 +199,15 @@ setup-audit:
 
 .PHONY: setup-rs
 setup-rs: smart_contracts/rust-toolchain
-	$(RUSTUP) update --no-self-update
-	$(RUSTUP) toolchain install --no-self-update stable $(PINNED_NIGHTLY)
+	$(RUSTUP) update
+	$(RUSTUP) toolchain install stable $(PINNED_NIGHTLY)
 	$(RUSTUP) target add --toolchain stable wasm32-unknown-unknown
 	$(RUSTUP) target add --toolchain $(PINNED_NIGHTLY) wasm32-unknown-unknown
 
 .PHONY: setup-nightly-rs
 setup-nightly-rs:
-	$(RUSTUP) update --no-self-update
-	$(RUSTUP) toolchain install --no-self-update nightly
+	$(RUSTUP) update
+	$(RUSTUP) toolchain install nightly
 	$(RUSTUP) target add --toolchain nightly wasm32-unknown-unknown
 
 .PHONY: setup-as

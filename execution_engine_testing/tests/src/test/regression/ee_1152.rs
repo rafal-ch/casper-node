@@ -8,7 +8,8 @@ use casper_engine_test_support::{
     TIMESTAMP_MILLIS_INCREMENT,
 };
 use casper_execution_engine::core::engine_state::{
-    genesis::GenesisValidator, GenesisAccount, RewardItem,
+    engine_config::DEFAULT_MINIMUM_DELEGATION_AMOUNT, genesis::GenesisValidator, GenesisAccount,
+    RewardItem,
 };
 use casper_types::{
     account::AccountHash,
@@ -31,7 +32,7 @@ static DELEGATOR_1: Lazy<PublicKey> = Lazy::new(|| PublicKey::from(&*DELEGATOR_1
 static DELEGATOR_1_ADDR: Lazy<AccountHash> = Lazy::new(|| AccountHash::from(&*DELEGATOR_1));
 
 const VALIDATOR_STAKE: u64 = 1_000_000_000;
-const DELEGATE_AMOUNT: u64 = 1_234_567;
+const DELEGATE_AMOUNT: u64 = 1_234_567 + DEFAULT_MINIMUM_DELEGATION_AMOUNT;
 
 #[ignore]
 #[test]
@@ -147,7 +148,8 @@ fn should_run_ee_1152_regression_test() {
         .with_protocol_version(ProtocolVersion::V1_0_0)
         // Next era id is used for returning future era validators, which we don't need to inspect
         // in this test.
-        .with_next_era_id(era_id);
+        .with_next_era_id(era_id)
+        .with_era_end_timestamp_millis(timestamp_millis);
 
     for (public_key, _stake) in trusted_era_validators.clone().into_iter() {
         let reward_amount = BLOCK_REWARD / trusted_era_validators.len() as u64;

@@ -113,11 +113,13 @@ impl URef {
     }
 
     /// Returns a new [`URef`] with the same address and updated access rights.
+    #[must_use]
     pub fn with_access_rights(self, access_rights: AccessRights) -> Self {
         URef(self.0, access_rights)
     }
 
     /// Removes the access rights from this [`URef`].
+    #[must_use]
     pub fn remove_access_rights(self) -> Self {
         URef(self.0, AccessRights::NONE)
     }
@@ -129,28 +131,33 @@ impl URef {
     }
 
     /// Returns a new [`URef`] with the same address and [`AccessRights::READ`] permission.
+    #[must_use]
     pub fn into_read(self) -> URef {
         URef(self.0, AccessRights::READ)
     }
 
     /// Returns a new [`URef`] with the same address and [`AccessRights::WRITE`] permission.
+    #[must_use]
     pub fn into_write(self) -> URef {
         URef(self.0, AccessRights::WRITE)
     }
 
     /// Returns a new [`URef`] with the same address and [`AccessRights::ADD`] permission.
+    #[must_use]
     pub fn into_add(self) -> URef {
         URef(self.0, AccessRights::ADD)
     }
 
     /// Returns a new [`URef`] with the same address and [`AccessRights::READ_ADD_WRITE`]
     /// permission.
+    #[must_use]
     pub fn into_read_add_write(self) -> URef {
         URef(self.0, AccessRights::READ_ADD_WRITE)
     }
 
     /// Returns a new [`URef`] with the same address and [`AccessRights::READ_WRITE`]
     /// permission.
+    #[must_use]
     pub fn into_read_write(self) -> URef {
         URef(self.0, AccessRights::READ_WRITE)
     }
@@ -177,7 +184,7 @@ impl URef {
         format!(
             "{}{}-{:03o}",
             UREF_FORMATTED_STRING_PREFIX,
-            checksummed_hex::encode(&self.addr()),
+            base16::encode_lower(&self.addr()),
             access_rights_bits
         )
     }
@@ -197,6 +204,11 @@ impl URef {
             .ok_or(FromStrError::InvalidAccessRights)?;
         Ok(URef(addr, access_rights))
     }
+
+    /// Removes specific access rights from this URef if present.
+    pub fn disable_access_rights(&mut self, access_rights: AccessRights) {
+        self.1.remove(access_rights)
+    }
 }
 
 #[cfg(feature = "json-schema")]
@@ -208,8 +220,7 @@ impl JsonSchema for URef {
     fn json_schema(gen: &mut SchemaGenerator) -> Schema {
         let schema = gen.subschema_for::<String>();
         let mut schema_object = schema.into_object();
-        schema_object.metadata().description =
-            Some(String::from("Checksummed hex-encoded, formatted URef."));
+        schema_object.metadata().description = Some(String::from("Hex-encoded, formatted URef."));
         schema_object.into()
     }
 }
@@ -221,7 +232,7 @@ impl Display for URef {
         write!(
             f,
             "URef({}, {})",
-            checksummed_hex::encode(&addr),
+            base16::encode_lower(&addr),
             access_rights
         )
     }
@@ -243,6 +254,12 @@ impl bytesrepr::ToBytes for URef {
 
     fn serialized_length(&self) -> usize {
         UREF_SERIALIZED_LENGTH
+    }
+
+    fn write_bytes(&self, writer: &mut Vec<u8>) -> Result<(), self::Error> {
+        writer.extend_from_slice(&self.0);
+        self.1.write_bytes(writer)?;
+        Ok(())
     }
 }
 
@@ -379,5 +396,30 @@ mod tests {
         let json_string = serde_json::to_string_pretty(&uref).unwrap();
         let decoded = serde_json::from_str(&json_string).unwrap();
         assert_eq!(uref, decoded);
+    }
+
+    #[test]
+    fn should_disable_access_rights() {
+        let mut uref = URef::new([255; 32], AccessRights::READ_ADD_WRITE);
+        assert!(uref.is_writeable());
+        uref.disable_access_rights(AccessRights::WRITE);
+        assert_eq!(uref.access_rights(), AccessRights::READ_ADD);
+
+        uref.disable_access_rights(AccessRights::WRITE);
+        assert!(
+            !uref.is_writeable(),
+            "Disabling access bit twice should be a noop"
+        );
+
+        assert_eq!(uref.access_rights(), AccessRights::READ_ADD);
+
+        uref.disable_access_rights(AccessRights::READ_ADD);
+        assert_eq!(uref.access_rights(), AccessRights::NONE);
+
+        uref.disable_access_rights(AccessRights::READ_ADD);
+        assert_eq!(uref.access_rights(), AccessRights::NONE);
+
+        uref.disable_access_rights(AccessRights::NONE);
+        assert_eq!(uref.access_rights(), AccessRights::NONE);
     }
 }

@@ -8,12 +8,12 @@ use casper_hashing::Digest;
 use casper_types::{bytesrepr, CLValueError, EraId, ProtocolVersion, PublicKey};
 
 use crate::{
-    core::{engine_state::Error, execution},
+    core::{engine_state::Error, execution, runtime::stack::RuntimeStackOverflow},
     shared::execution_journal::ExecutionJournal,
 };
 
 /// The definition of a slash item.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SlashItem {
     /// The public key of the validator that will be slashed.
     pub validator_id: PublicKey,
@@ -27,7 +27,7 @@ impl SlashItem {
 }
 
 /// The definition of a reward item.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RewardItem {
     /// The public key of the validator that will be rewarded.
     pub validator_id: PublicKey,
@@ -46,7 +46,7 @@ impl RewardItem {
 }
 
 /// The definition of an evict item.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EvictItem {
     /// The public key of the validator that will be evicted.
     pub validator_id: PublicKey,
@@ -177,6 +177,12 @@ impl From<bytesrepr::Error> for StepError {
 impl From<CLValueError> for StepError {
     fn from(error: CLValueError) -> Self {
         StepError::CLValueError(error)
+    }
+}
+
+impl From<RuntimeStackOverflow> for StepError {
+    fn from(overflow: RuntimeStackOverflow) -> Self {
+        StepError::OtherEngineStateError(Error::from(overflow))
     }
 }
 

@@ -16,8 +16,8 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
 
 use super::{
-    chain_info::ChainInfo, Config, Event as SmallNetworkEvent, GossipedAddress, MessageKind,
-    Payload, SmallNetwork,
+    chain_info::ChainInfo, Config, Event as SmallNetworkEvent, FromIncoming, GossipedAddress,
+    MessageKind, Payload, SmallNetwork,
 };
 use crate::{
     components::{
@@ -26,8 +26,12 @@ use crate::{
         Component,
     },
     effect::{
-        announcements::{ControlAnnouncement, GossiperAnnouncement, NetworkAnnouncement},
-        requests::{NetworkRequest, StorageRequest},
+        announcements::{ControlAnnouncement, GossiperAnnouncement},
+        incoming::GossiperIncoming,
+        requests::{
+            BeginGossipRequest, ChainspecLoaderRequest, ContractRuntimeRequest, NetworkRequest,
+            StorageRequest,
+        },
         EffectBuilder, Effects,
     },
     protocol,
@@ -38,7 +42,6 @@ use crate::{
         ConditionCheckReactor,
     },
     types::NodeId,
-    utils::Source,
     NodeRng,
 };
 
@@ -50,13 +53,15 @@ enum Event {
     #[from]
     AddressGossiper(#[serde(skip_serializing)] gossiper::Event<GossipedAddress>),
     #[from]
-    NetworkRequest(#[serde(skip_serializing)] NetworkRequest<NodeId, Message>),
+    NetworkRequest(#[serde(skip_serializing)] NetworkRequest<Message>),
     #[from]
     ControlAnnouncement(ControlAnnouncement),
     #[from]
-    NetworkAnnouncement(#[serde(skip_serializing)] NetworkAnnouncement<NodeId, Message>),
-    #[from]
     AddressGossiperAnnouncement(#[serde(skip_serializing)] GossiperAnnouncement<GossipedAddress>),
+    #[from]
+    BeginAddressGossipRequest(BeginGossipRequest<GossipedAddress>),
+    /// An incoming network message with an address gossiper protocol message.
+    AddressGossiperIncoming(GossiperIncoming<GossipedAddress>),
 }
 
 impl ReactorEvent for Event {
@@ -67,24 +72,32 @@ impl ReactorEvent for Event {
             None
         }
     }
+
+    fn try_into_control(self) -> Option<ControlAnnouncement> {
+        if let Self::ControlAnnouncement(ctrl_ann) = self {
+            Some(ctrl_ann)
+        } else {
+            None
+        }
+    }
 }
 
-impl From<NetworkRequest<NodeId, gossiper::Message<GossipedAddress>>> for Event {
-    fn from(request: NetworkRequest<NodeId, gossiper::Message<GossipedAddress>>) -> Self {
+impl From<NetworkRequest<gossiper::Message<GossipedAddress>>> for Event {
+    fn from(request: NetworkRequest<gossiper::Message<GossipedAddress>>) -> Self {
         Event::NetworkRequest(request.map_payload(Message::from))
     }
 }
 
-impl From<NetworkRequest<NodeId, Message>> for SmallNetworkEvent<Message> {
-    fn from(request: NetworkRequest<NodeId, Message>) -> SmallNetworkEvent<Message> {
+impl From<NetworkRequest<Message>> for SmallNetworkEvent<Message> {
+    fn from(request: NetworkRequest<Message>) -> SmallNetworkEvent<Message> {
         SmallNetworkEvent::NetworkRequest {
             req: Box::new(request),
         }
     }
 }
 
-impl From<NetworkRequest<NodeId, protocol::Message>> for Event {
-    fn from(_request: NetworkRequest<NodeId, protocol::Message>) -> Self {
+impl From<NetworkRequest<protocol::Message>> for Event {
+    fn from(_request: NetworkRequest<protocol::Message>) -> Self {
         unreachable!()
     }
 }
@@ -92,6 +105,28 @@ impl From<NetworkRequest<NodeId, protocol::Message>> for Event {
 impl From<StorageRequest> for Event {
     fn from(_request: StorageRequest) -> Self {
         unreachable!()
+    }
+}
+
+impl From<ChainspecLoaderRequest> for Event {
+    fn from(_request: ChainspecLoaderRequest) -> Self {
+        unreachable!()
+    }
+}
+
+impl From<ContractRuntimeRequest> for Event {
+    fn from(_request: ContractRuntimeRequest) -> Self {
+        unreachable!()
+    }
+}
+
+impl FromIncoming<Message> for Event {
+    fn from_incoming(sender: NodeId, payload: Message) -> Self {
+        match payload {
+            Message::AddressGossiper(message) => {
+                Event::AddressGossiperIncoming(GossiperIncoming { sender, message })
+            }
+        }
     }
 }
 
@@ -119,6 +154,10 @@ impl Payload for Message {
         match self {
             Message::AddressGossiper(_) => MessageKind::AddressGossip,
         }
+    }
+
+    fn incoming_resource_estimate(&self, _weights: &super::EstimatorWeights) -> u32 {
+        0
     }
 }
 
@@ -180,47 +219,38 @@ impl Reactor for TestReactor {
                 self.address_gossiper
                     .handle_event(effect_builder, rng, event),
             ),
-            Event::NetworkRequest(req) => self.dispatch_event(
-                effect_builder,
-                rng,
-                Event::SmallNet(SmallNetworkEvent::from(req)),
+            Event::NetworkRequest(req) => reactor::wrap_effects(
+                Event::SmallNet,
+                self.net.handle_event(effect_builder, rng, req.into()),
             ),
             Event::ControlAnnouncement(ctrl_ann) => {
                 unreachable!("unhandled control announcement: {}", ctrl_ann)
             }
-            Event::NetworkAnnouncement(NetworkAnnouncement::MessageReceived {
-                sender,
-                payload,
-            }) => {
-                let reactor_event = match payload {
-                    Message::AddressGossiper(message) => {
-                        Event::AddressGossiper(gossiper::Event::MessageReceived { sender, message })
-                    }
-                };
-                self.dispatch_event(effect_builder, rng, reactor_event)
-            }
-            Event::NetworkAnnouncement(NetworkAnnouncement::GossipOurAddress(gossiped_address)) => {
-                let event = gossiper::Event::ItemReceived {
-                    item_id: gossiped_address,
-                    source: Source::<NodeId>::Ourself,
-                };
-                self.dispatch_event(effect_builder, rng, Event::AddressGossiper(event))
-            }
-            Event::NetworkAnnouncement(NetworkAnnouncement::NewPeer(_)) => {
-                // We do not care about the announcement of new peers in this test.
-                Effects::new()
-            }
             Event::AddressGossiperAnnouncement(GossiperAnnouncement::NewCompleteItem(
                 gossiped_address,
-            )) => {
-                let reactor_event =
-                    Event::SmallNet(SmallNetworkEvent::PeerAddressReceived(gossiped_address));
-                self.dispatch_event(effect_builder, rng, reactor_event)
-            }
+            )) => reactor::wrap_effects(
+                Event::SmallNet,
+                self.net.handle_event(
+                    effect_builder,
+                    rng,
+                    SmallNetworkEvent::PeerAddressReceived(gossiped_address),
+                ),
+            ),
+
             Event::AddressGossiperAnnouncement(GossiperAnnouncement::FinishedGossiping(_)) => {
                 // We do not care about the announcement of gossiping finished in this test.
                 Effects::new()
             }
+            Event::BeginAddressGossipRequest(ev) => reactor::wrap_effects(
+                Event::AddressGossiper,
+                self.address_gossiper
+                    .handle_event(effect_builder, rng, ev.into()),
+            ),
+            Event::AddressGossiperIncoming(incoming) => reactor::wrap_effects(
+                Event::AddressGossiper,
+                self.address_gossiper
+                    .handle_event(effect_builder, rng, incoming.into()),
+            ),
         }
     }
 
@@ -230,8 +260,6 @@ impl Reactor for TestReactor {
 }
 
 impl NetworkedReactor for TestReactor {
-    type NodeId = NodeId;
-
     fn node_id(&self) -> NodeId {
         self.net.node_id()
     }

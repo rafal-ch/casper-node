@@ -71,6 +71,7 @@ function _step_01()
 
     source "$NCTL/sh/assets/setup_from_stage.sh" \
             stage="$STAGE_ID" \
+            chainspec_path="$NCTL/sh/scenarios/chainspecs/upgrade_scenario_3.chainspec.toml.in" \
             accounts_path="$NCTL/sh/scenarios/accounts_toml/upgrade_scenario_3.accounts.toml"
     source "$NCTL/sh/node/start.sh" node=all
 }
@@ -110,7 +111,7 @@ function _step_04()
 {
     local NODE_ID=${1:-'5'}
     local ACCOUNT_ID=${2:-'7'}
-    local AMOUNT=${3:-'1'}
+    local AMOUNT=${3:-'500000000000'}
 
     log_step_upgrades 4 "Delegating $AMOUNT from account-$ACCOUNT_ID to validator-$NODE_ID"
 
@@ -297,7 +298,7 @@ function _step_12()
 {
     local NODE_ID=${1:-'5'}
     local ACCOUNT_ID=${2:-'7'}
-    local AMOUNT=${3:-'1'}
+    local AMOUNT=${3:-'500000000000'}
 
     log_step_upgrades 12 "Undelegating $AMOUNT to account-$ACCOUNT_ID from validator-$NODE_ID"
 

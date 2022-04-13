@@ -1,4 +1,3 @@
-use assert_matches::assert_matches;
 use num_traits::Zero;
 
 use casper_engine_test_support::{
@@ -97,7 +96,7 @@ fn should_run_successful_bond_and_unbond_and_slashing() {
         GENESIS_ACCOUNT_STAKE.into()
     );
 
-    let unbond_purses: UnbondingPurses = builder.get_withdraws();
+    let unbond_purses: UnbondingPurses = builder.get_unbonds();
     assert_eq!(unbond_purses.len(), 0);
 
     //
@@ -124,7 +123,7 @@ fn should_run_successful_bond_and_unbond_and_slashing() {
 
     let account_balance_before = builder.get_purse_balance(unbonding_purse);
 
-    let unbond_purses: UnbondingPurses = builder.get_withdraws();
+    let unbond_purses: UnbondingPurses = builder.get_unbonds();
     assert_eq!(unbond_purses.len(), 1);
 
     let unbond_list = unbond_purses
@@ -145,7 +144,7 @@ fn should_run_successful_bond_and_unbond_and_slashing() {
         DEFAULT_GENESIS_TIMESTAMP_MILLIS + DEFAULT_LOCKED_FUNDS_PERIOD_MILLIS,
         Vec::new(),
     );
-    let unbond_purses: UnbondingPurses = builder.get_withdraws();
+    let unbond_purses: UnbondingPurses = builder.get_unbonds();
     assert_eq!(unbond_purses.len(), 1);
 
     let unbond_list = unbond_purses
@@ -181,7 +180,7 @@ fn should_run_successful_bond_and_unbond_and_slashing() {
 
     builder.exec(exec_request_5).expect_success().commit();
 
-    let unbond_purses: UnbondingPurses = builder.get_withdraws();
+    let unbond_purses: UnbondingPurses = builder.get_unbonds();
     assert!(unbond_purses
         .get(&*DEFAULT_ACCOUNT_ADDR)
         .unwrap()
@@ -235,7 +234,7 @@ fn should_fail_bonding_with_insufficient_funds_directly() {
         auction::METHOD_ADD_BID,
         runtime_args! {
             auction::ARG_PUBLIC_KEY => new_validator_pk,
-            auction::ARG_AMOUNT => new_validator_balance + 1,
+            auction::ARG_AMOUNT => new_validator_balance + U512::one(),
             auction::ARG_DELEGATION_RATE => delegation_rate,
         },
     )
@@ -243,9 +242,12 @@ fn should_fail_bonding_with_insufficient_funds_directly() {
     builder.exec(add_bid_request);
 
     let error = builder.get_error().expect("should be error");
-
     assert!(
-        matches!(error, EngineError::Exec(Error::Revert(e)) if e == ApiError::from(auction::Error::TransferToBidPurse)),
+        matches!(
+            error,
+            EngineError::Exec(Error::Revert(ApiError::Mint(mint_error))
+        )
+        if mint_error == mint::Error::InsufficientFunds as u8),
         "{:?}",
         error
     );
@@ -289,15 +291,19 @@ fn should_fail_bonding_with_insufficient_funds() {
 
     builder.exec(exec_request_2).commit();
 
-    let response = builder
-        .get_exec_result(1)
-        .expect("should have a response")
-        .to_owned();
+    let response = builder.get_exec_result(1).expect("should have a response");
 
     assert_eq!(response.len(), 1);
     let exec_result = response[0].as_error().expect("should have error");
-    let error = assert_matches!(exec_result, EngineError::Exec(Error::Revert(e)) => *e, "{:?}", exec_result);
-    assert_eq!(error, ApiError::from(auction::Error::TransferToBidPurse));
+    assert!(
+        matches!(
+            exec_result,
+            EngineError::Exec(Error::Revert(ApiError::Mint(mint_error))
+        )
+        if *mint_error == mint::Error::InsufficientFunds as u8),
+        "{:?}",
+        exec_result
+    );
 }
 
 #[ignore]
@@ -341,10 +347,7 @@ fn should_fail_unbonding_validator_with_locked_funds() {
 
     builder.exec(exec_request_2).commit();
 
-    let response = builder
-        .get_exec_result(0)
-        .expect("should have a response")
-        .to_owned();
+    let response = builder.get_exec_result(0).expect("should have a response");
 
     let error_message = utils::get_error_message(response);
 
@@ -378,10 +381,7 @@ fn should_fail_unbonding_validator_without_bonding_first() {
 
     builder.exec(exec_request).commit();
 
-    let response = builder
-        .get_exec_result(0)
-        .expect("should have a response")
-        .to_owned();
+    let response = builder.get_exec_result(0).expect("should have a response");
 
     let error_message = utils::get_error_message(response);
 
@@ -449,7 +449,7 @@ fn should_run_successful_bond_and_unbond_with_release() {
         GENESIS_ACCOUNT_STAKE.into()
     );
 
-    let unbond_purses: UnbondingPurses = builder.get_withdraws();
+    let unbond_purses: UnbondingPurses = builder.get_unbonds();
     assert_eq!(unbond_purses.len(), 0);
 
     //
@@ -475,7 +475,7 @@ fn should_run_successful_bond_and_unbond_with_release() {
 
     builder.exec(exec_request_2).expect_success().commit();
 
-    let unbond_purses: UnbondingPurses = builder.get_withdraws();
+    let unbond_purses: UnbondingPurses = builder.get_unbonds();
     assert_eq!(unbond_purses.len(), 1);
 
     let unbond_list = unbond_purses
@@ -496,7 +496,7 @@ fn should_run_successful_bond_and_unbond_with_release() {
 
     builder.run_auction(timestamp_millis, Vec::new());
     timestamp_millis += TIMESTAMP_MILLIS_INCREMENT;
-    let unbond_purses: UnbondingPurses = builder.get_withdraws();
+    let unbond_purses: UnbondingPurses = builder.get_unbonds();
     assert_eq!(unbond_purses.len(), 1);
 
     let unbond_list = unbond_purses
@@ -533,7 +533,7 @@ fn should_run_successful_bond_and_unbond_with_release() {
         account_balance_before_auction + unbond_amount
     );
 
-    let unbond_purses: UnbondingPurses = builder.get_withdraws();
+    let unbond_purses: UnbondingPurses = builder.get_unbonds();
     assert!(unbond_purses
         .get(&*DEFAULT_ACCOUNT_ADDR)
         .unwrap()
@@ -626,7 +626,7 @@ fn should_run_successful_unbond_funds_after_changing_unbonding_delay() {
         GENESIS_ACCOUNT_STAKE.into()
     );
 
-    let unbond_purses: UnbondingPurses = builder.get_withdraws();
+    let unbond_purses: UnbondingPurses = builder.get_unbonds();
     assert_eq!(unbond_purses.len(), 0);
 
     //
@@ -655,7 +655,7 @@ fn should_run_successful_unbond_funds_after_changing_unbonding_delay() {
 
     let account_balance_before_auction = builder.get_purse_balance(unbonding_purse);
 
-    let unbond_purses: UnbondingPurses = builder.get_withdraws();
+    let unbond_purses: UnbondingPurses = builder.get_unbonds();
     assert_eq!(unbond_purses.len(), 1);
 
     let unbond_list = unbond_purses
@@ -674,7 +674,7 @@ fn should_run_successful_unbond_funds_after_changing_unbonding_delay() {
 
     builder.run_auction(timestamp_millis, Vec::new());
 
-    let unbond_purses: UnbondingPurses = builder.get_withdraws();
+    let unbond_purses: UnbondingPurses = builder.get_unbonds();
     assert_eq!(unbond_purses.len(), 1);
 
     let unbond_list = unbond_purses
@@ -726,7 +726,7 @@ fn should_run_successful_unbond_funds_after_changing_unbonding_delay() {
         account_balance_before_auction + unbond_amount
     );
 
-    let unbond_purses: UnbondingPurses = builder.get_withdraws();
+    let unbond_purses: UnbondingPurses = builder.get_unbonds();
     assert!(unbond_purses
         .get(&*DEFAULT_ACCOUNT_ADDR)
         .unwrap()

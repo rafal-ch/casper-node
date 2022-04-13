@@ -9,9 +9,53 @@ All notable changes to this project will be documented in this file.  The format
 [comment]: <> (Fixed:      any bug fixes)
 [comment]: <> (Security:   in case of vulnerabilities)
 
-
-
 ## [Unreleased]
+
+### Added
+* Add a new entry point `redelegate` to the Auction system contract which allows users to redelegate to another validator without having to unbond. The function signature for the entrypoint is: `redelegate(delegator: PublicKey, validator: PublicKey, amount: U512, new_validator: PublicKey)`
+* Add a new type `ChainspecRegistry` which contains the hashes of the `chainspec.toml` and will optionally contain the hashes for `accounts.toml` and `global_state.toml`.
+* Add ability to enable strict args checking when executing a contract; i.e. that all non-optional args are provided and of the correct `CLType`.
+
+### Changed
+* Change contract runtime to allow caching GlobalState changes during execution of a single block.
+* Fix some integer casts.
+* Change both genesis and upgrade functions to write `ChainspecRegistry` under the fixed `Key::ChainspecRegistry`.
+* Lift the temporary limit of the size of individual values stored in global state.
+* Lift the temporary limit of the global maximum delegator capacity.
+
+
+
+## 1.5.0
+
+### Changed
+* Temporarily limit the size of individual values stored in global state.
+
+### Security
+* `amount` argument is now required for transactions wanting to send tokens using account's main purse. It is now an upper limit on all tokens being transferred within the transaction.
+* Significant rework around the responsibilities of the executor, runtime and runtime context objects, with a focus on removing alternate execution paths where unintended escalation of privilege was possible.
+* Attenuate the main purse URef to remove WRITE permissions by default when returned via `ret` or passed as a runtime argument.
+* Fix a potential panic during Wasm preprocessing.
+* `get_era_validators` performs a query rather than execution.
+
+
+
+## 1.4.4 - 2021-12-29
+
+### Changed
+* No longer checksum-hex encode hash digest and address types.
+
+
+
+## 1.4.3 - 2021-12-06
+
+### Changed
+* Auction contract now handles minting into an existing purse.
+* Default maximum stack size in `WasmConfig` changed to 188.
+* Default behavior of LMDB changed to use [`NO_READAHEAD`](https://docs.rs/lmdb/0.8.0/lmdb/struct.EnvironmentFlags.html#associatedconstant.NO_READAHEAD)
+
+### Fixed
+* Fix a case where an unlocked and partially unbonded genesis validator with smaller stake incorrectly occupies slot for a non-genesis validator with higher stake.
+
 
 
 ## [1.4.2] - 2021-11-11
@@ -28,8 +72,6 @@ All notable changes to this project will be documented in this file.  The format
 * Added genesis validation step to ensure there are more genesis validators than validator slots.
 * Added a support for passing a public key as a `target` argument in native transfers.
 * Added a `max_associated_keys` configuration option for a hard limit of associated keys under accounts.
-
-
 
 ### Changed
 * Documented `storage` module and children.

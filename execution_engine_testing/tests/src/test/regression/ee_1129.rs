@@ -17,7 +17,6 @@ use casper_execution_engine::{
     },
     shared::{
         system_config::auction_costs::{DEFAULT_ADD_BID_COST, DEFAULT_DELEGATE_COST},
-        wasm::do_nothing_bytes,
         wasm_prep::PreprocessingError,
     },
 };
@@ -28,6 +27,8 @@ use casper_types::{
     system::auction::{self, DelegationRate},
     Motes, PublicKey, RuntimeArgs, SecretKey, U512,
 };
+
+use crate::wasm_utils;
 
 const ENTRY_POINT_NAME: &str = "create_purse";
 const CONTRACT_KEY: &str = "contract";
@@ -99,12 +100,12 @@ fn should_run_ee_1129_underfunded_delegate_call() {
     builder.exec(exec_request).commit();
 
     let error = builder
-        .get_exec_results()
-        .last()
+        .get_last_exec_results()
         .expect("should have results")
         .get(0)
         .expect("should have first result")
         .as_error()
+        .cloned()
         .expect("should have error");
 
     assert!(
@@ -163,12 +164,12 @@ fn should_run_ee_1129_underfunded_add_bid_call() {
     builder.exec(exec_request).commit();
 
     let error = builder
-        .get_exec_results()
-        .last()
+        .get_last_exec_results()
         .expect("should have results")
         .get(0)
         .expect("should have first result")
         .as_error()
+        .cloned()
         .expect("should have error");
 
     assert!(
@@ -211,12 +212,12 @@ fn should_run_ee_1129_underfunded_mint_contract_call() {
     builder.exec(exec_request).commit();
 
     let error = builder
-        .get_exec_results()
-        .last()
+        .get_last_exec_results()
         .expect("should have results")
         .get(0)
         .expect("should have first result")
         .as_error()
+        .cloned()
         .expect("should have error");
 
     assert!(
@@ -259,12 +260,12 @@ fn should_not_panic_when_calling_session_contract_by_uref() {
     builder.exec(exec_request).commit();
 
     let error = builder
-        .get_exec_results()
-        .last()
+        .get_last_exec_results()
         .expect("should have results")
         .get(0)
         .expect("should have first result")
         .as_error()
+        .cloned()
         .expect("should have error");
 
     assert!(
@@ -291,7 +292,7 @@ fn should_not_panic_when_calling_payment_contract_by_uref() {
     let exec_request = {
         let deploy = DeployItemBuilder::new()
             .with_address(*DEFAULT_ACCOUNT_ADDR)
-            .with_session_bytes(do_nothing_bytes(), RuntimeArgs::new())
+            .with_session_bytes(wasm_utils::do_nothing_bytes(), RuntimeArgs::new())
             .with_stored_payment_named_key(ACCESS_KEY, ENTRY_POINT_NAME, RuntimeArgs::new())
             .with_authorization_keys(&[*DEFAULT_ACCOUNT_ADDR])
             .with_deploy_hash([42; 32])
@@ -305,12 +306,12 @@ fn should_not_panic_when_calling_payment_contract_by_uref() {
     builder.exec(exec_request).commit();
 
     let error = builder
-        .get_exec_results()
-        .last()
+        .get_last_exec_results()
         .expect("should have results")
         .get(0)
         .expect("should have first result")
         .as_error()
+        .cloned()
         .expect("should have error");
 
     assert!(
@@ -358,12 +359,12 @@ fn should_not_panic_when_calling_contract_package_by_uref() {
     builder.exec(exec_request).commit();
 
     let error = builder
-        .get_exec_results()
-        .last()
+        .get_last_exec_results()
         .expect("should have results")
         .get(0)
         .expect("should have first result")
         .as_error()
+        .cloned()
         .expect("should have error");
 
     assert!(
@@ -390,7 +391,7 @@ fn should_not_panic_when_calling_payment_versioned_contract_by_uref() {
     let exec_request = {
         let deploy = DeployItemBuilder::new()
             .with_address(*DEFAULT_ACCOUNT_ADDR)
-            .with_session_bytes(do_nothing_bytes(), RuntimeArgs::new())
+            .with_session_bytes(wasm_utils::do_nothing_bytes(), RuntimeArgs::new())
             .with_stored_versioned_payment_contract_by_name(
                 ACCESS_KEY,
                 None,
@@ -409,12 +410,12 @@ fn should_not_panic_when_calling_payment_versioned_contract_by_uref() {
     builder.exec(exec_request).commit();
 
     let error = builder
-        .get_exec_results()
-        .last()
+        .get_last_exec_results()
         .expect("should have results")
         .get(0)
         .expect("should have first result")
         .as_error()
+        .cloned()
         .expect("should have error");
     assert!(
         matches!(error, Error::InvalidKeyVariant),
@@ -464,12 +465,12 @@ fn should_not_panic_when_calling_module_without_memory() {
     builder.exec(exec_request).commit();
 
     let error = builder
-        .get_exec_results()
-        .last()
+        .get_last_exec_results()
         .expect("should have results")
         .get(0)
         .expect("should have first result")
         .as_error()
+        .cloned()
         .expect("should have error");
 
     assert!(

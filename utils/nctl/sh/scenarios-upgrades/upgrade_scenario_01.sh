@@ -52,7 +52,9 @@ function _step_01()
 
     log_step_upgrades 1 "starting network from stage ($STAGE_ID)"
 
-    source "$NCTL/sh/assets/setup_from_stage.sh" stage="$STAGE_ID"
+    source "$NCTL/sh/assets/setup_from_stage.sh" \
+        stage="$STAGE_ID" \
+        chainspec_path="$NCTL/sh/scenarios/chainspecs/upgrade_scenario_1.chainspec.toml.in"
     source "$NCTL/sh/node/start.sh" node=all
 }
 
@@ -61,8 +63,8 @@ function _step_02()
 {
     log_step_upgrades 2 "awaiting genesis era completion"
 
-    sleep 60.0
-    await_until_era_n 1
+    sleep 10.0
+    await_until_era_n 1 'true'
 }
 
 # Step 03: Populate global state -> native + wasm transfers.
@@ -84,7 +86,7 @@ function _step_04()
 {
     log_step_upgrades 4 "awaiting next era"
 
-    await_n_eras 1
+    await_n_eras 1 'true' '2.0'
 }
 
 # Step 05: Upgrade network from stage.
@@ -98,7 +100,7 @@ function _step_05()
     source "$NCTL/sh/assets/upgrade_from_stage.sh" stage="$STAGE_ID" verbose=false
 
     log "... awaiting 2 eras + 1 block"
-    await_n_eras 2
+    await_n_eras 2 'true' '2.0'
     await_n_blocks 1
 }
 
@@ -157,6 +159,7 @@ function _step_07()
 {
     local NODE_ID
     local TRUSTED_HASH
+    local SLEEP_COUNT
 
     log_step_upgrades 7 "joining passive nodes"
 
@@ -173,7 +176,7 @@ function _step_07()
     done
 
     log "... awaiting auction bid acceptance (3 eras + 1 block)"
-    await_n_eras 3
+    await_n_eras 3 'true'
     await_n_blocks 1
 
     log "... starting nodes"
@@ -186,8 +189,20 @@ function _step_07()
     done
 
     log "... ... awaiting new nodes to start"
-    sleep 60
-    await_n_eras 1
+
+    while [ "$(get_count_of_up_nodes)" != '10' ]; do
+        sleep 1.0
+        SLEEP_COUNT=$((SLEEP_COUNT + 1))
+        log "NODE_COUNT_UP: $(get_count_of_up_nodes)"
+        log "Sleep time: $SLEEP_COUNT seconds"
+
+        if [ "$SLEEP_COUNT" -ge "60" ]; then
+            log "Timeout reached of 1 minute! Exiting ..."
+            exit 1
+        fi
+    done
+
+    await_n_eras 1 'true'
     await_n_blocks 1
 }
 
@@ -271,7 +286,7 @@ function _step_08()
 # Step 09: Terminate.
 function _step_09()
 {
-    log_step_upgrades 7 "test successful - tidying up"
+    log_step_upgrades 9 "test successful - tidying up"
 
     source "$NCTL/sh/assets/teardown.sh"
 

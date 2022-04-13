@@ -271,7 +271,7 @@ impl ExecutionResult {
     ///
     /// Returns `None` if user deposited enough funds in payment purse and the execution result was
     /// a success variant, otherwise a wrapped [`ForcedTransferResult`] that indicates an error
-    /// codition.
+    /// condition.
     pub fn check_forced_transfer(
         &self,
         payment_purse_balance: Motes,
@@ -382,20 +382,11 @@ pub enum ExecutionResultBuilderError {
 
 /// Builder object that will construct a final [`ExecutionResult`] given payment, session and
 /// finalize [`ExecutionResult`]s.
+#[derive(Default)]
 pub struct ExecutionResultBuilder {
     payment_execution_result: Option<ExecutionResult>,
     session_execution_result: Option<ExecutionResult>,
     finalize_execution_result: Option<ExecutionResult>,
-}
-
-impl Default for ExecutionResultBuilder {
-    fn default() -> Self {
-        ExecutionResultBuilder {
-            payment_execution_result: None,
-            session_execution_result: None,
-            finalize_execution_result: None,
-        }
-    }
 }
 
 impl ExecutionResultBuilder {

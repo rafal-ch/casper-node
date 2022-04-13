@@ -1,4 +1,3 @@
-mod config;
 mod event;
 mod metrics;
 mod tests;
@@ -33,16 +32,14 @@ use crate::{
         EffectBuilder, EffectExt, Effects, Responder,
     },
     types::{
-        chainspec::DeployConfig, Block, Chainspec, Deploy, DeployConfigurationFailure, NodeId,
+        chainspec::DeployConfig, BlockHeader, Chainspec, Deploy, DeployConfigurationFailure,
         Timestamp,
     },
     utils::Source,
     NodeRng,
 };
 
-pub(crate) use config::Config;
-pub(crate) use event::Event;
-use event::EventMetadata;
+pub(crate) use event::{Event, EventMetadata};
 
 const ARG_TARGET: &str = "target";
 
@@ -82,9 +79,6 @@ pub(crate) enum DeployParameterFailure {
     /// Nonexistent contract at hash.
     #[error("contract at {contract_hash} does not exist")]
     NonexistentContractAtHash { contract_hash: ContractHash },
-    /// Nonexistent contract at name.
-    #[error("contract named {name} does not exist in Account's NamedKeys")]
-    NonexistentContractAtName { name: String },
     /// Nonexistent contract entrypoint.
     #[error("contract does not have {entry_point}")]
     NonexistentContractEntryPoint { entry_point: String },
@@ -93,9 +87,6 @@ pub(crate) enum DeployParameterFailure {
     NonexistentContractPackageAtHash {
         contract_package_hash: ContractPackageHash,
     },
-    /// Contract Package does not exist.
-    #[error("contract package named {name} does not exist in Account's NamedKeys")]
-    NonexistentContractPackageAtName { name: String },
     /// Invalid contract at given version.
     #[error("invalid contract at version: {contract_version}")]
     InvalidContractAtVersion { contract_version: ContractVersion },
@@ -131,7 +122,7 @@ pub(crate) enum DeployParameterFailure {
 /// A helper trait constraining `DeployAcceptor` compatible reactor events.
 pub(crate) trait ReactorEventT:
     From<Event>
-    + From<DeployAcceptorAnnouncement<NodeId>>
+    + From<DeployAcceptorAnnouncement>
     + From<StorageRequest>
     + From<ContractRuntimeRequest>
     + Send
@@ -140,7 +131,7 @@ pub(crate) trait ReactorEventT:
 
 impl<REv> ReactorEventT for REv where
     REv: From<Event>
-        + From<DeployAcceptorAnnouncement<NodeId>>
+        + From<DeployAcceptorAnnouncement>
         + From<StorageRequest>
         + From<ContractRuntimeRequest>
         + Send
@@ -157,14 +148,12 @@ pub struct DeployAcceptor {
     chain_name: String,
     protocol_version: ProtocolVersion,
     deploy_config: DeployConfig,
-    verify_accounts: bool,
     max_associated_keys: u32,
     metrics: metrics::Metrics,
 }
 
 impl DeployAcceptor {
     pub(crate) fn new(
-        config: Config,
         chainspec: &Chainspec,
         registry: &Registry,
     ) -> Result<Self, prometheus::Error> {
@@ -173,7 +162,6 @@ impl DeployAcceptor {
             protocol_version: chainspec.protocol_version(),
             deploy_config: chainspec.deploy_config,
             max_associated_keys: chainspec.core_config.max_associated_keys,
-            verify_accounts: config.verify_accounts(),
             metrics: metrics::Metrics::new(registry)?,
         })
     }
@@ -186,7 +174,7 @@ impl DeployAcceptor {
         &mut self,
         effect_builder: EffectBuilder<REv>,
         deploy: Box<Deploy>,
-        source: Source<NodeId>,
+        source: Source,
         maybe_responder: Option<Responder<Result<(), Error>>>,
     ) -> Effects<Event> {
         let verification_start_timestamp = Timestamp::now();
@@ -208,7 +196,7 @@ impl DeployAcceptor {
         }
 
         // We only perform expiry checks on deploys received from the client.
-        if source.from_client() {
+        if source.is_client() {
             let current_node_timestamp = Timestamp::now();
             if deploy.header().expired(current_node_timestamp) {
                 let time_of_expiry = deploy.header().expires();
@@ -225,29 +213,20 @@ impl DeployAcceptor {
             }
         }
 
-        if self.verify_accounts {
-            effect_builder
-                .get_highest_block_from_storage()
-                .event(move |maybe_block| Event::GetBlockResult {
-                    event_metadata: EventMetadata::new(deploy, source, maybe_responder),
-                    maybe_block: Box::new(maybe_block),
-                    verification_start_timestamp,
-                })
-        } else {
-            effect_builder
-                .immediately()
-                .event(move |_| Event::VerifyDeployCryptographicValidity {
-                    event_metadata: EventMetadata::new(deploy, source, maybe_responder),
-                    verification_start_timestamp,
-                })
-        }
+        effect_builder
+            .get_highest_block_header_from_storage()
+            .event(move |maybe_block_header| Event::GetBlockHeaderResult {
+                event_metadata: EventMetadata::new(deploy, source, maybe_responder),
+                maybe_block_header: Box::new(maybe_block_header),
+                verification_start_timestamp,
+            })
     }
 
     fn handle_get_block_result<REv: ReactorEventT>(
         &mut self,
         effect_builder: EffectBuilder<REv>,
         event_metadata: EventMetadata,
-        maybe_block: Option<Block>,
+        maybe_block: Option<BlockHeader>,
         verification_start_timestamp: Timestamp,
     ) -> Effects<Event> {
         let mut effects = Effects::new();
@@ -267,7 +246,7 @@ impl DeployAcceptor {
         let account_hash = event_metadata.deploy.header().account().to_account_hash();
         let account_key = account_hash.into();
 
-        if event_metadata.source.from_client() {
+        if event_metadata.source.is_client() {
             effect_builder
                 .get_account_from_global_state(prestate_hash, account_key)
                 .event(move |maybe_account| Event::GetAccountResult {
@@ -367,7 +346,7 @@ impl DeployAcceptor {
         account_hash: AccountHash,
         verification_start_timestamp: Timestamp,
     ) -> Effects<Event> {
-        if !event_metadata.source.from_client() {
+        if !event_metadata.source.is_client() {
             // This would only happen due to programmer error and should crash the node.
             // Balance checks for deploys received by from a peer will cause the network
             // to stall.
@@ -468,9 +447,15 @@ impl DeployAcceptor {
             | ExecutableDeployItem::StoredVersionedContractByName { .. } => (),
         }
 
-        let account_hash = event_metadata.deploy.header().account().to_account_hash();
         match payment.identifier() {
-            ExecutableDeployItemIdentifier::Module | ExecutableDeployItemIdentifier::Transfer => {
+            // We skip validation if the identifier is a named key, since that could yield a
+            // validation success at block X, then a validation failure at block X+1 (e.g. if the
+            // named key is deleted, or updated to point to an item which will fail subsequent
+            // validation).
+            ExecutableDeployItemIdentifier::Module
+            | ExecutableDeployItemIdentifier::Transfer
+            | ExecutableDeployItemIdentifier::Contract(ContractIdentifier::Name(_))
+            | ExecutableDeployItemIdentifier::Package(ContractPackageIdentifier::Name { .. }) => {
                 self.verify_session_logic(
                     effect_builder,
                     event_metadata,
@@ -478,44 +463,29 @@ impl DeployAcceptor {
                     verification_start_timestamp,
                 )
             }
-            ExecutableDeployItemIdentifier::Contract(contract_identifier) => {
-                let (query_key, path) = match &contract_identifier {
-                    ContractIdentifier::Name(name) => {
-                        let query_key: Key = account_hash.into();
-                        let path = vec![name.clone()];
-                        (query_key, path)
-                    }
-                    ContractIdentifier::Hash(contract_hash) => {
-                        let query_key: Key = (*contract_hash).into();
-                        (query_key, vec![])
-                    }
-                };
+            ExecutableDeployItemIdentifier::Contract(ContractIdentifier::Hash(contract_hash)) => {
+                let query_key = Key::from(contract_hash);
+                let path = vec![];
                 effect_builder
                     .get_contract_for_validation(prestate_hash, query_key, path)
                     .event(move |maybe_contract| Event::GetContractResult {
                         event_metadata,
                         prestate_hash,
                         is_payment: true,
-                        contract_identifier,
+                        contract_hash,
                         maybe_contract,
                         verification_start_timestamp,
                     })
             }
-            ExecutableDeployItemIdentifier::Package(contract_package_identifier) => {
-                let (query_key, path): (Key, Vec<String>) = match &contract_package_identifier {
-                    ContractPackageIdentifier::Name { name, .. } => {
-                        let query_key: Key = account_hash.into();
-                        let path = vec![name.clone()];
-                        (query_key, path)
-                    }
-                    ContractPackageIdentifier::Hash {
-                        contract_package_hash,
-                        ..
-                    } => {
-                        let query_key = (*contract_package_hash).into();
-                        (query_key, vec![])
-                    }
-                };
+            ExecutableDeployItemIdentifier::Package(
+                ref contract_package_identifier @ ContractPackageIdentifier::Hash {
+                    contract_package_hash,
+                    ..
+                },
+            ) => {
+                let query_key = Key::from(contract_package_hash);
+                let path = vec![];
+                let maybe_package_version = contract_package_identifier.version();
                 effect_builder
                     .get_contract_package_for_validation(prestate_hash, query_key, path)
                     .event(
@@ -523,7 +493,8 @@ impl DeployAcceptor {
                             event_metadata,
                             prestate_hash,
                             is_payment: true,
-                            contract_package_identifier,
+                            contract_package_hash,
+                            maybe_package_version,
                             maybe_contract_package,
                             verification_start_timestamp,
                         },
@@ -578,53 +549,44 @@ impl DeployAcceptor {
             | ExecutableDeployItem::StoredVersionedContractByName { .. } => (),
         }
 
-        let account_hash = event_metadata.deploy.header().account().to_account_hash();
         match session.identifier() {
-            ExecutableDeployItemIdentifier::Module | ExecutableDeployItemIdentifier::Transfer => {
+            // We skip validation if the identifier is a named key, since that could yield a
+            // validation success at block X, then a validation failure at block X+1 (e.g. if the
+            // named key is deleted, or updated to point to an item which will fail subsequent
+            // validation).
+            ExecutableDeployItemIdentifier::Module
+            | ExecutableDeployItemIdentifier::Transfer
+            | ExecutableDeployItemIdentifier::Contract(ContractIdentifier::Name(_))
+            | ExecutableDeployItemIdentifier::Package(ContractPackageIdentifier::Name { .. }) => {
                 self.validate_deploy_cryptography(
                     effect_builder,
                     event_metadata,
                     verification_start_timestamp,
                 )
             }
-            ExecutableDeployItemIdentifier::Contract(contract_identifier) => {
-                let (query_key, path) = match &contract_identifier {
-                    ContractIdentifier::Name(name) => {
-                        let query_key: Key = account_hash.into();
-                        let path = vec![name.clone()];
-                        (query_key, path)
-                    }
-                    ContractIdentifier::Hash(contract_hash) => {
-                        let query_key: Key = (*contract_hash).into();
-                        (query_key, vec![])
-                    }
-                };
+            ExecutableDeployItemIdentifier::Contract(ContractIdentifier::Hash(contract_hash)) => {
+                let query_key = Key::from(contract_hash);
+                let path = vec![];
                 effect_builder
                     .get_contract_for_validation(prestate_hash, query_key, path)
                     .event(move |maybe_contract| Event::GetContractResult {
                         event_metadata,
                         prestate_hash,
                         is_payment: false,
-                        contract_identifier,
+                        contract_hash,
                         maybe_contract,
                         verification_start_timestamp,
                     })
             }
-            ExecutableDeployItemIdentifier::Package(contract_package_identifier) => {
-                let (query_key, path): (Key, Vec<String>) = match &contract_package_identifier {
-                    ContractPackageIdentifier::Name { name, .. } => {
-                        let query_key: Key = account_hash.into();
-                        let path = vec![name.clone()];
-                        (query_key, path)
-                    }
-                    ContractPackageIdentifier::Hash {
-                        contract_package_hash,
-                        ..
-                    } => {
-                        let query_key = (*contract_package_hash).into();
-                        (query_key, vec![])
-                    }
-                };
+            ExecutableDeployItemIdentifier::Package(
+                ref contract_package_identifier @ ContractPackageIdentifier::Hash {
+                    contract_package_hash,
+                    ..
+                },
+            ) => {
+                let query_key = Key::from(contract_package_hash);
+                let path = vec![];
+                let maybe_package_version = contract_package_identifier.version();
                 effect_builder
                     .get_contract_package_for_validation(prestate_hash, query_key, path)
                     .event(
@@ -632,7 +594,8 @@ impl DeployAcceptor {
                             event_metadata,
                             prestate_hash,
                             is_payment: false,
-                            contract_package_identifier,
+                            contract_package_hash,
+                            maybe_package_version,
                             maybe_contract_package,
                             verification_start_timestamp,
                         },
@@ -649,7 +612,7 @@ impl DeployAcceptor {
         prestate_hash: Digest,
         is_payment: bool,
         entry_point: String,
-        contract_identifier: ContractIdentifier,
+        contract_hash: ContractHash,
         maybe_contract: Option<Contract>,
         verification_start_timestamp: Timestamp,
     ) -> Effects<Event> {
@@ -657,7 +620,7 @@ impl DeployAcceptor {
             if !contract.entry_points().has_entry_point(&entry_point) {
                 debug!(
                     ?entry_point,
-                    ?contract_identifier,
+                    ?contract_hash,
                     ?prestate_hash,
                     "missing entry point in contract"
                 );
@@ -687,17 +650,8 @@ impl DeployAcceptor {
             );
         }
 
-        let failure = match contract_identifier {
-            ContractIdentifier::Name(name) => {
-                debug!(?name, "nonexistent contract with name");
-                DeployParameterFailure::NonexistentContractAtName { name }
-            }
-            ContractIdentifier::Hash(contract_hash) => {
-                debug!(?contract_hash, "nonexistent contract with hash");
-                DeployParameterFailure::NonexistentContractAtHash { contract_hash }
-            }
-        };
-
+        debug!(?contract_hash, "nonexistent contract with hash");
+        let failure = DeployParameterFailure::NonexistentContractAtHash { contract_hash };
         let error = Error::InvalidDeployParameters {
             prestate_hash,
             failure,
@@ -717,29 +671,19 @@ impl DeployAcceptor {
         event_metadata: EventMetadata,
         prestate_hash: Digest,
         is_payment: bool,
-        contract_package_identifier: ContractPackageIdentifier,
+        contract_package_hash: ContractPackageHash,
+        maybe_package_version: Option<ContractVersion>,
         maybe_contract_package: Option<ContractPackage>,
         verification_start_timestamp: Timestamp,
     ) -> Effects<Event> {
         match maybe_contract_package {
             None => {
-                let failure = match contract_package_identifier {
-                    ContractPackageIdentifier::Name { name, .. } => {
-                        debug!(?name, "nonexistent contract package with name");
-                        DeployParameterFailure::NonexistentContractPackageAtName { name }
-                    }
-                    ContractPackageIdentifier::Hash {
-                        contract_package_hash,
-                        ..
-                    } => {
-                        debug!(
-                            ?contract_package_hash,
-                            "nonexistent contract package with hash"
-                        );
-                        DeployParameterFailure::NonexistentContractPackageAtHash {
-                            contract_package_hash,
-                        }
-                    }
+                debug!(
+                    ?contract_package_hash,
+                    "nonexistent contract package with hash"
+                );
+                let failure = DeployParameterFailure::NonexistentContractPackageAtHash {
+                    contract_package_hash,
                 };
                 let error = Error::InvalidDeployParameters {
                     prestate_hash,
@@ -752,7 +696,7 @@ impl DeployAcceptor {
                     verification_start_timestamp,
                 )
             }
-            Some(contract_package) => match contract_package_identifier.version() {
+            Some(contract_package) => match maybe_package_version {
                 Some(contract_version) => {
                     let contract_version_key = ContractVersionKey::new(
                         self.protocol_version.value().major,
@@ -767,7 +711,7 @@ impl DeployAcceptor {
                                     event_metadata,
                                     prestate_hash,
                                     is_payment,
-                                    contract_identifier: ContractIdentifier::Hash(contract_hash),
+                                    contract_hash,
                                     maybe_contract,
                                     verification_start_timestamp,
                                 })
@@ -846,7 +790,7 @@ impl DeployAcceptor {
     fn validate_deploy_cryptography<REv: ReactorEventT>(
         &self,
         effect_builder: EffectBuilder<REv>,
-        mut event_metadata: EventMetadata,
+        event_metadata: EventMetadata,
         verification_start_timestamp: Timestamp,
     ) -> Effects<Event> {
         if let Err(deploy_configuration_failure) = event_metadata.deploy.is_valid() {
@@ -915,14 +859,14 @@ impl<REv: ReactorEventT> Component<REv> for DeployAcceptor {
                 source,
                 maybe_responder: responder,
             } => self.accept(effect_builder, deploy, source, responder),
-            Event::GetBlockResult {
+            Event::GetBlockHeaderResult {
                 event_metadata,
-                maybe_block,
+                maybe_block_header,
                 verification_start_timestamp,
             } => self.handle_get_block_result(
                 effect_builder,
                 event_metadata,
-                *maybe_block,
+                *maybe_block_header,
                 verification_start_timestamp,
             ),
             Event::GetAccountResult {
@@ -955,7 +899,7 @@ impl<REv: ReactorEventT> Component<REv> for DeployAcceptor {
                 event_metadata,
                 prestate_hash,
                 is_payment,
-                contract_identifier,
+                contract_hash,
                 maybe_contract,
                 verification_start_timestamp,
             } => {
@@ -971,7 +915,7 @@ impl<REv: ReactorEventT> Component<REv> for DeployAcceptor {
                     prestate_hash,
                     is_payment,
                     entry_point,
-                    contract_identifier,
+                    contract_hash,
                     maybe_contract,
                     verification_start_timestamp,
                 )
@@ -980,7 +924,8 @@ impl<REv: ReactorEventT> Component<REv> for DeployAcceptor {
                 event_metadata,
                 prestate_hash,
                 is_payment,
-                contract_package_identifier,
+                contract_package_hash,
+                maybe_package_version,
                 maybe_contract_package,
                 verification_start_timestamp,
             } => self.handle_get_contract_package_result(
@@ -988,16 +933,9 @@ impl<REv: ReactorEventT> Component<REv> for DeployAcceptor {
                 event_metadata,
                 prestate_hash,
                 is_payment,
-                contract_package_identifier,
+                contract_package_hash,
+                maybe_package_version,
                 maybe_contract_package,
-                verification_start_timestamp,
-            ),
-            Event::VerifyDeployCryptographicValidity {
-                event_metadata,
-                verification_start_timestamp,
-            } => self.validate_deploy_cryptography(
-                effect_builder,
-                event_metadata,
                 verification_start_timestamp,
             ),
             Event::PutToStorageResult {
