@@ -47,9 +47,9 @@ bench = false
 name = "transfer_bench"
 harness = false
 
-[[bench]]
-name = "auction_bench"
-harness = false
+# [[bench]]
+# name = "auction_bench"
+# harness = false
 
 [[bin]]
 name = "state-initializer"

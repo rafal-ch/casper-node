@@ -14,6 +14,7 @@ license = "Apache-2.0"
 capnpc = "0.14.5"
 
 [dependencies]
+casper-node-macros = { version = "1.4.3", path = "../node_macros" }
 base16 = { version = "0.2.1", default-features = false, features = ["alloc"] }
 base64 = { version = "0.13.0", default-features = false }
 bitflags = "1"

@@ -22,6 +22,7 @@
 #[cfg_attr(not(test), macro_use)]
 extern crate alloc;
 
+mod capnp;
 mod access_rights;
 pub mod account;
 pub mod api_error;

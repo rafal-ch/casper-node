@@ -608,6 +608,7 @@ dependencies = [
  "blake2",
  "capnp",
  "capnpc",
+ "casper-node-macros",
  "criterion",
  "datasize",
  "derp",
