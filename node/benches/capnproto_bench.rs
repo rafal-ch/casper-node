@@ -5,12 +5,12 @@ use casper_types::U512;
 use casper_node::capnp::FromCapnpBytes;
 use casper_node::capnp::ToCapnpBytes;
 
-fn capnp_serialize_u512(b: &mut Bencher) {
+fn capnp_serialize_u512_u64(b: &mut Bencher) {
     let num_u512 = U512::default();
     b.iter(|| black_box(num_u512.try_to_capnp_bytes()));
 }
 
-fn capnp_deserialize_u512(b: &mut Bencher) {
+fn capnp_deserialize_u512_u64(b: &mut Bencher) {
     let num_u512 = U512::default();
     let num_u512_bytes = num_u512.try_to_capnp_bytes().unwrap();
 
@@ -18,8 +18,8 @@ fn capnp_deserialize_u512(b: &mut Bencher) {
 }
 
 fn capnproto_bench(c: &mut Criterion) {
-    c.bench_function("capnp_serialize_u512", capnp_serialize_u512);
-    c.bench_function("capnp_deserialize_u512", capnp_deserialize_u512);
+    c.bench_function("capnp_serialize_u512_u64", capnp_serialize_u512_u64);
+    c.bench_function("capnp_deserialize_u512_u64", capnp_deserialize_u512_u64);
 }
 
 criterion_group!(benches, capnproto_bench);

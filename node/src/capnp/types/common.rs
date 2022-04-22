@@ -1,8 +1,10 @@
+use std::convert::TryInto;
+
 use casper_types::U512;
 
 use super::{FromCapnpReader, ToCapnpBuilder};
 use crate::capnp::{DeserializeError, FromCapnpBytes, SerializeError, ToCapnpBytes};
-use casper_node_macros::make_capnp_byte_setter_functions;
+//use casper_node_macros::make_capnp_byte_setter_functions;
 
 #[allow(dead_code)]
 pub(super) mod common_capnp {
@@ -14,21 +16,39 @@ pub(super) mod common_capnp {
 
 // We cannot use the const literals directly
 // const U512_LENGTH_BYTES = 64;
-make_capnp_byte_setter_functions!(64, "u512", "common_capnp::u512");
+// make_capnp_byte_setter_functions!(64, "u512", "common_capnp::u512");
 
 impl ToCapnpBuilder<U512> for common_capnp::u512::Builder<'_> {
     fn try_to_builder(&mut self, x: &U512) -> Result<(), SerializeError> {
         let mut le_bytes = [0u8; 64];
         x.to_little_endian(&mut le_bytes[..]);
         let mut msg = self.reborrow();
-        set_u512(&mut msg, &le_bytes);
+
+        msg.set_bytes0(u64::from_le_bytes(le_bytes[0..=7].try_into().unwrap()));
+        msg.set_bytes1(u64::from_le_bytes(le_bytes[8..=15].try_into().unwrap()));
+        msg.set_bytes2(u64::from_le_bytes(le_bytes[16..=23].try_into().unwrap()));
+        msg.set_bytes3(u64::from_le_bytes(le_bytes[24..=31].try_into().unwrap()));
+        msg.set_bytes4(u64::from_le_bytes(le_bytes[32..=39].try_into().unwrap()));
+        msg.set_bytes5(u64::from_le_bytes(le_bytes[40..=47].try_into().unwrap()));
+        msg.set_bytes6(u64::from_le_bytes(le_bytes[48..=55].try_into().unwrap()));
+        msg.set_bytes7(u64::from_le_bytes(le_bytes[56..=63].try_into().unwrap()));
+        //set_u512(&mut msg, &le_bytes);
         Ok(())
     }
 }
 
 impl FromCapnpReader<U512> for common_capnp::u512::Reader<'_> {
     fn try_from_reader(&self) -> Result<U512, DeserializeError> {
-        let le_bytes = get_u512(*self);
+        //let le_bytes = get_u512(*self);
+        let mut le_bytes = [0u8; 64];
+        le_bytes[0..=7].copy_from_slice(&self.get_bytes0().to_le_bytes());
+        le_bytes[8..=15].copy_from_slice(&self.get_bytes1().to_le_bytes());
+        le_bytes[16..=23].copy_from_slice(&self.get_bytes2().to_le_bytes());
+        le_bytes[24..=31].copy_from_slice(&self.get_bytes3().to_le_bytes());
+        le_bytes[32..=39].copy_from_slice(&self.get_bytes4().to_le_bytes());
+        le_bytes[40..=47].copy_from_slice(&self.get_bytes5().to_le_bytes());
+        le_bytes[48..=55].copy_from_slice(&self.get_bytes6().to_le_bytes());
+        le_bytes[56..=63].copy_from_slice(&self.get_bytes7().to_le_bytes());
         Ok(U512::from_little_endian(&le_bytes))
     }
 }
