@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use crate::capnp::{DeserializeError, FromCapnpBytes, SerializeError, ToCapnpBytes};
 
 #[allow(dead_code)]

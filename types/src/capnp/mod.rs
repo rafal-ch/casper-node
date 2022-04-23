@@ -1,5 +1,5 @@
 //! Capnproto serialization and deserialization.
-
+use alloc::vec::Vec;
 use capnp::Error as CapnpError;
 
 mod types;

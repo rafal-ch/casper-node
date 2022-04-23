@@ -1033,9 +1033,8 @@ impl ToBytes for U512 {
         // non_zero_bytes.reverse();
         // Ok(non_zero_bytes)
 
-        let capnp_bytes: Vec<u8> = std::iter::once(80)
-            .chain(self.try_to_capnp_bytes().unwrap())
-            .collect();
+        let mut capnp_bytes: Vec<u8> = vec![80];
+        capnp_bytes.extend(self.try_to_capnp_bytes().unwrap());
 
         Ok(capnp_bytes)
     }

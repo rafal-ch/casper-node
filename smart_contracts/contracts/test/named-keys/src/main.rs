@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+use alloc::vec::Vec;
 extern crate alloc;
 
 use alloc::string::{String, ToString};

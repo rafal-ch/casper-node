@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use crate::U512;
 
 use super::{FromCapnpReader, ToCapnpBuilder};
