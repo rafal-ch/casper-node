@@ -1032,31 +1032,27 @@ impl ToBytes for U512 {
         // non_zero_bytes.push(num_bytes);
         // non_zero_bytes.reverse();
         // Ok(non_zero_bytes)
+
         let capnp_bytes: Vec<u8> = std::iter::once(80)
             .chain(self.try_to_capnp_bytes().unwrap())
             .collect();
-
-        dbg!(&capnp_bytes.len());
-        dbg!(&capnp_bytes);
 
         Ok(capnp_bytes)
     }
 
     fn serialized_length(&self) -> usize {
-        80 + U8_SERIALIZED_LENGTH
         // let mut buf = [0u8; 64];
         // self.to_little_endian(&mut buf);
         // let non_zero_bytes = buf.iter().rev().skip_while(|b| **b == 0).count();
         // U8_SERIALIZED_LENGTH + non_zero_bytes
+
+        80 + U8_SERIALIZED_LENGTH
     }
 }
 
 impl FromBytes for U512 {
     fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), Error> {
-        //let (num_bytes, rem): (u8, &[u8]) = FromBytes::from_bytes(bytes)?;
-
-        let num_bytes = bytes[0];
-        dbg!(&num_bytes);
+        // let (num_bytes, rem): (u8, &[u8]) = FromBytes::from_bytes(bytes)?;
 
         // if num_bytes > 64 {
         //     Err(Error::Formatting)
@@ -1065,6 +1061,7 @@ impl FromBytes for U512 {
         //     let result = U512::from_little_endian(value);
         //     Ok((result, rem))
         // }
+
         let deserialized = U512::try_from_capnp_bytes(&bytes[1..81]).unwrap(); // U512 is serialized to 80 bytes with capnp
         Ok((deserialized, &bytes[81..]))
     }
@@ -1499,5 +1496,29 @@ mod tests {
         serde_roundtrip(U128::from(1));
         serde_roundtrip(U128::from(u64::max_value()));
         serde_roundtrip(U128::max_value());
+    }
+
+    #[test]
+    fn test_to_bytes_with_capnp() {
+        let num_1 = 3487634876_u64;
+        let num_2 = U512::from(918387623876123_usize);
+        let num_3 = U128::from(38761233876123_usize);
+        let num_4 = u8::from(12);
+
+        let mut bytes = num_1.to_bytes().unwrap();
+        bytes.extend(num_2.to_bytes().unwrap());
+        bytes.extend(num_3.to_bytes().unwrap());
+        bytes.extend(num_4.to_bytes().unwrap());
+
+        let (read_1, rem) = u64::from_bytes(&bytes).unwrap();
+        let (read_2, rem) = U512::from_bytes(&rem).unwrap();
+        let (read_3, rem) = U128::from_bytes(&rem).unwrap();
+        let (read_4, rem) = u8::from_bytes(&rem).unwrap();
+
+        assert_eq!(num_1, read_1);
+        assert_eq!(num_2, read_2);
+        assert_eq!(num_3, read_3);
+        assert_eq!(num_4, read_4);
+        assert!(rem.is_empty());
     }
 }
