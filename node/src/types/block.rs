@@ -782,6 +782,7 @@ pub struct BlockHeader {
     era_id: EraId,
     height: u64,
     protocol_version: ProtocolVersion,
+    new_id: u64,
 }
 
 impl BlockHeader {
@@ -797,6 +798,7 @@ impl BlockHeader {
         era_id: EraId,
         height: u64,
         protocol_version: ProtocolVersion,
+        new_id: u64,
     ) -> Self {
         Self {
             parent_hash,
@@ -809,6 +811,7 @@ impl BlockHeader {
             protocol_version,
             random_bit,
             accumulated_seed,
+            new_id,
         }
     }
 
@@ -937,6 +940,7 @@ impl BlockHeader {
             protocol_version,
             random_bit,
             accumulated_seed,
+            new_id: _,
         } = self;
 
         let hashed_era_end = match era_end {
@@ -983,6 +987,12 @@ impl BlockHeader {
     // Serialize the block header.
     fn serialize(&self) -> Result<Vec<u8>, bytesrepr::Error> {
         self.to_bytes()
+    }
+
+    /// Get the block header's new id.
+    #[must_use]
+    pub fn new_id(&self) -> u64 {
+        self.new_id
     }
 }
 
@@ -1059,6 +1069,7 @@ impl FromBytes for BlockHeader {
             era_id,
             height,
             protocol_version,
+            new_id: 100,
         };
         Ok((block_header, remainder))
     }
@@ -1501,6 +1512,7 @@ impl Block {
             era_id: finalized_block.era_id,
             height: finalized_block.height,
             protocol_version,
+            new_id: 100,
         };
 
         Ok(Block {
@@ -2020,6 +2032,7 @@ pub(crate) mod json_compatibility {
                 era_id: block_header.era_id,
                 height: block_header.height,
                 protocol_version: block_header.protocol_version,
+                new_id: 100,
             }
         }
     }
