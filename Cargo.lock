@@ -522,6 +522,7 @@ dependencies = [
  "futures",
  "futures-io",
  "getrandom",
+ "hex",
  "hex-buffer-serde 0.3.0",
  "hex_fmt",
  "hostname",

@@ -18,6 +18,7 @@ struct BlockHeader {
     eraId @7 :EraId;
     height @8 :UInt64;
     protocolVersion @9 :ProtocolVersion;
+    newId @10 :UInt64;
 }
 
 struct BlockHash {
