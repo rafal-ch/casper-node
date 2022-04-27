@@ -1,5 +1,7 @@
 [workspace]
 members = [
+    "bytesrepr_derive",
+    "bytesrepr_derive_internal",
     "ci/casper_updater",
     "execution_engine",
     "execution_engine_testing/test_support",
@@ -16,6 +18,8 @@ members = [
 ]
 
 default-members = [
+    "bytesrepr_derive",
+    "bytesrepr_derive_internal",
     "ci/casper_updater",
     "execution_engine",
     "execution_engine_testing/test_support",

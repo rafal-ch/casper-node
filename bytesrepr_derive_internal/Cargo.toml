@@ -1,0 +1,15 @@
+[package]
+name = "bytesrepr-derive-internal"
+version = "0.0.1"
+authors = ["Rafał Chabowski <rafal@casperlabs.io>"]
+edition = "2018"
+description = "Derive proc macro for Bytesrepr, implementation"
+documentation = "https://docs.rs/casper-node"
+readme = "README.md"
+homepage = "https://casperlabs.io"
+repository = "https://github.com/CasperLabs/casper-node/"
+
+[dependencies]
+proc-macro2 = "1.0.37"
+quote = "1.0.18"
+syn = { version = "1.0.91", features = ["full"] }
