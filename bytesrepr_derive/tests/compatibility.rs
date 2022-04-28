@@ -1,5 +1,8 @@
 use bytesrepr_derive::{BytesreprDeserialize, BytesreprSerialize};
-use casper_types::{bytesrepr::{FromBytes, ToBytes}, NamedKey};
+use casper_types::{
+    bytesrepr::{FromBytes, ToBytes},
+    NamedKey,
+};
 
 // TODO: Into prop test
 #[test]
