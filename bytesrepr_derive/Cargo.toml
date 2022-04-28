@@ -17,3 +17,6 @@ bytesrepr-derive-internal = { path = "../bytesrepr_derive_internal" }
 quote = "1.0.18"
 syn = { version = "1.0.91", features = ["full"] }
 proc-macro2 = "1.0.37"
+
+[dev-dependencies]
+casper-types = { path = "../types" }
