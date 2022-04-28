@@ -59,13 +59,16 @@ fn generate_deserialization_code(input: &ItemStruct) -> syn::Result<TokenStream2
     Ok(fields_deserialization_code)
 }
 
-pub fn serialize_struct(input: &ItemStruct) -> syn::Result<TokenStream2> {
+pub fn serialize_struct(
+    input: &ItemStruct,
+    crate_name: &TokenStream2,
+) -> syn::Result<TokenStream2> {
     let struct_name = &input.ident;
     let (fields_serialization_code, serialized_len_code) = generate_serialization_code(&input)?;
     let generated = quote!(
         impl ToBytes for #struct_name {
-            fn to_bytes(&self) -> Result<Vec<u8>, casper_types::bytesrepr::Error> {
-                let mut buffer = casper_types::bytesrepr::allocate_buffer(self)?;
+            fn to_bytes(&self) -> Result<Vec<u8>, #crate_name::bytesrepr::Error> {
+                let mut buffer = #crate_name::bytesrepr::allocate_buffer(self)?;
                 #fields_serialization_code
                 Ok(buffer)
             }
@@ -78,11 +81,15 @@ pub fn serialize_struct(input: &ItemStruct) -> syn::Result<TokenStream2> {
     Ok(generated)
 }
 
-pub fn deserialize_struct(input: &ItemStruct) -> syn::Result<TokenStream2> {
+pub fn deserialize_struct(
+    input: &ItemStruct,
+    crate_name: &TokenStream2,
+) -> syn::Result<TokenStream2> {
+    let struct_name = &input.ident;
     let fields_deserialization_code = generate_deserialization_code(&input)?;
     let generated = quote!(
-        impl FromBytes for Simple {
-            fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), casper_types::bytesrepr::Error> {
+        impl FromBytes for #struct_name {
+            fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), #crate_name::bytesrepr::Error> {
                 let remainder = bytes;
                 #fields_deserialization_code
             }
@@ -94,10 +101,16 @@ pub fn deserialize_struct(input: &ItemStruct) -> syn::Result<TokenStream2> {
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;
+    use proc_macro2::{Span, TokenStream};
     use quote::quote;
-    use syn::ItemStruct;
+    use syn::{Ident, ItemStruct};
 
     use crate::{deserialize_struct, serialize_struct, to_field_names};
+
+    fn casper_types_crate_name() -> TokenStream {
+        let ident = Ident::new("casper_types", Span::call_site());
+        quote!(#ident)
+    }
 
     #[test]
     fn field_names() {
@@ -157,6 +170,8 @@ mod tests {
 
     #[test]
     fn struct_simple() {
+        let crate_name = casper_types_crate_name();
+
         let item_struct: ItemStruct = syn::parse2(quote! {
             struct Simple {
                 unsigned_int: u16,
@@ -169,8 +184,8 @@ mod tests {
 
         let expected_serialize = quote!(
             impl ToBytes for Simple {
-                fn to_bytes(&self) -> Result<Vec<u8>, casper_types::bytesrepr::Error> {
-                    let mut buffer = casper_types::bytesrepr::allocate_buffer(self)?;
+                fn to_bytes(&self) -> Result<Vec<u8>, #crate_name::bytesrepr::Error> {
+                    let mut buffer = #crate_name::bytesrepr::allocate_buffer(self)?;
                     buffer.extend(self.unsigned_int.to_bytes()?);
                     buffer.extend(self.int.to_bytes()?);
                     buffer.extend(self.float.to_bytes()?);
@@ -188,7 +203,7 @@ mod tests {
 
         let expected_deserialize = quote!(
             impl FromBytes for Simple {
-                fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), casper_types::bytesrepr::Error> {
+                fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), #crate_name::bytesrepr::Error> {
                     let remainder = bytes;
                     let (unsigned_int, remainder) = u16::from_bytes(remainder)?;
                     let (int, remainder) = i64::from_bytes(remainder)?;
@@ -204,11 +219,12 @@ mod tests {
             }
         );
 
-        let actual_serialize = serialize_struct(&item_struct).expect("serialize_struct() failed");
+        let actual_serialize = serialize_struct(&item_struct, &casper_types_crate_name())
+            .expect("serialize_struct() failed");
         assert_eq!(expected_serialize.to_string(), actual_serialize.to_string());
 
-        let actual_deserialize =
-            deserialize_struct(&item_struct).expect("deserialize_struct() failed");
+        let actual_deserialize = deserialize_struct(&item_struct, &casper_types_crate_name())
+            .expect("deserialize_struct() failed");
         assert_eq!(
             expected_deserialize.to_string(),
             actual_deserialize.to_string()
