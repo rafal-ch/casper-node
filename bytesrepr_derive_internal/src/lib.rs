@@ -1,6 +1,6 @@
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::{FieldsNamed, Ident, ItemStruct};
+use syn::{FieldsNamed, Ident, ItemStruct, Type};
 
 fn to_field_names<'a>(fields: &'a FieldsNamed) -> impl Iterator<Item = &'a Ident> {
     // TODO: Support `skip` attribute here.
@@ -8,6 +8,12 @@ fn to_field_names<'a>(fields: &'a FieldsNamed) -> impl Iterator<Item = &'a Ident
         .named
         .iter()
         .filter_map(|field| field.ident.as_ref().or(None))
+}
+
+// TODO: Merge with `to_field_names`
+fn to_field_types<'a>(fields: &FieldsNamed) -> impl Iterator<Item = Type> + '_ {
+    // TODO: Support `skip` attribute here.
+    fields.named.iter().map(|field| field.ty.clone())
 }
 
 fn generate_serialization_code(input: &ItemStruct) -> syn::Result<(TokenStream2, TokenStream2)> {
@@ -29,7 +35,31 @@ fn generate_serialization_code(input: &ItemStruct) -> syn::Result<(TokenStream2,
     Ok((fields_serialization_code, serialized_len_code))
 }
 
-pub fn derive_struct(input: ItemStruct) -> syn::Result<TokenStream2> {
+fn generate_deserialization_code(input: &ItemStruct) -> syn::Result<TokenStream2> {
+    let struct_name = &input.ident;
+    let mut fields_deserialization_code = quote!();
+    let mut fields_list_code = quote!();
+    match &input.fields {
+        syn::Fields::Named(fields) => {
+            let field_names: Vec<_> = to_field_names(fields).collect();
+            let field_types: Vec<_> = to_field_types(fields).collect();
+            fields_deserialization_code.extend(quote!(
+                #(let (#field_names, remainder) = #field_types::from_bytes(remainder)?;)*
+            ));
+            fields_list_code.extend(quote!(
+                #(#field_names),*
+            ));
+        }
+        syn::Fields::Unnamed(_) => todo!(),
+        syn::Fields::Unit => todo!(),
+    }
+    fields_deserialization_code.extend(quote!(
+        Ok((#struct_name { #fields_list_code }, remainder))
+    ));
+    Ok(fields_deserialization_code)
+}
+
+pub fn serialize_struct(input: &ItemStruct) -> syn::Result<TokenStream2> {
     let struct_name = &input.ident;
     let (fields_serialization_code, serialized_len_code) = generate_serialization_code(&input)?;
     let generated = quote!(
@@ -48,13 +78,26 @@ pub fn derive_struct(input: ItemStruct) -> syn::Result<TokenStream2> {
     Ok(generated)
 }
 
+pub fn deserialize_struct(input: &ItemStruct) -> syn::Result<TokenStream2> {
+    let fields_deserialization_code = generate_deserialization_code(&input)?;
+    let generated = quote!(
+        impl FromBytes for Simple {
+            fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), casper_types::bytesrepr::Error> {
+                let remainder = bytes;
+                #fields_deserialization_code
+            }
+        }
+    );
+    Ok(generated)
+}
+
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;
     use quote::quote;
     use syn::ItemStruct;
 
-    use crate::{derive_struct, to_field_names};
+    use crate::{deserialize_struct, serialize_struct, to_field_names};
 
     #[test]
     fn field_names() {
@@ -124,7 +167,7 @@ mod tests {
         })
         .expect("parse test struct");
 
-        let expected = quote!(
+        let expected_serialize = quote!(
             impl ToBytes for Simple {
                 fn to_bytes(&self) -> Result<Vec<u8>, casper_types::bytesrepr::Error> {
                     let mut buffer = casper_types::bytesrepr::allocate_buffer(self)?;
@@ -142,8 +185,33 @@ mod tests {
                 }
             }
         );
-        let actual = derive_struct(item_struct).expect("derive_struct() failed");
 
-        assert_eq!(expected.to_string(), actual.to_string());
+        let expected_deserialize = quote!(
+            impl FromBytes for Simple {
+                fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), casper_types::bytesrepr::Error> {
+                    let remainder = bytes;
+                    let (unsigned_int, remainder) = u16::from_bytes(remainder)?;
+                    let (int, remainder) = i64::from_bytes(remainder)?;
+                    let (float, remainder) = f64::from_bytes(remainder)?;
+                    let (string, remainder) = String::from_bytes(remainder)?;
+                    Ok((Simple {
+                        unsigned_int,
+                        int,
+                        float,
+                        string
+                    }, remainder))
+                }
+            }
+        );
+
+        let actual_serialize = serialize_struct(&item_struct).expect("serialize_struct() failed");
+        assert_eq!(expected_serialize.to_string(), actual_serialize.to_string());
+
+        let actual_deserialize =
+            deserialize_struct(&item_struct).expect("deserialize_struct() failed");
+        assert_eq!(
+            expected_deserialize.to_string(),
+            actual_deserialize.to_string()
+        );
     }
 }
