@@ -6,8 +6,7 @@ use syn::{Ident, ItemStruct};
 
 use bytesrepr_derive_internal::{deserialize_struct, serialize_struct};
 
-#[proc_macro_derive(BytesreprSerialize)]
-pub fn bytesrepr_serialize(input: TokenStream) -> TokenStream {
+fn detect_crate_name() -> Result<proc_macro2::TokenStream, TokenStream> {
     let crate_name = match crate_name("casper-types") {
         Ok(name) => match name {
             proc_macro_crate::FoundCrate::Itself => {
@@ -21,8 +20,17 @@ pub fn bytesrepr_serialize(input: TokenStream) -> TokenStream {
         },
         Err(_) => {
             let error = quote!(compile_error!("crate name not found"));
-            return TokenStream::from(error);
+            return Err(TokenStream::from(error));
         }
+    };
+    Ok(crate_name)
+}
+
+#[proc_macro_derive(BytesreprSerialize)]
+pub fn bytesrepr_serialize(input: TokenStream) -> TokenStream {
+    let crate_name = match detect_crate_name() {
+        Ok(value) => value,
+        Err(value) => return value,
     };
 
     let generated = match syn::parse::<ItemStruct>(input.clone()) {
@@ -37,21 +45,9 @@ pub fn bytesrepr_serialize(input: TokenStream) -> TokenStream {
 
 #[proc_macro_derive(BytesreprDeserialize)]
 pub fn bytesrepr_deserialize(input: TokenStream) -> TokenStream {
-    let crate_name = match crate_name("casper-types") {
-        Ok(name) => match name {
-            proc_macro_crate::FoundCrate::Itself => {
-                let ident = Ident::new("crate", Span::call_site());
-                quote!(#ident)
-            }
-            proc_macro_crate::FoundCrate::Name(name) => {
-                let ident = Ident::new(&name, Span::call_site());
-                quote!(#ident)
-            }
-        },
-        Err(_) => {
-            let error = quote!(compile_error!("crate name not found"));
-            return TokenStream::from(error);
-        }
+    let crate_name = match detect_crate_name() {
+        Ok(value) => value,
+        Err(value) => return value,
     };
 
     let generated = match syn::parse::<ItemStruct>(input.clone()) {
