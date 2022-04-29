@@ -26,6 +26,7 @@ fn detect_crate_name() -> Result<proc_macro2::TokenStream, TokenStream> {
     Ok(crate_name)
 }
 
+#[cfg(feature = "serialize")]
 #[proc_macro_derive(BytesreprSerialize)]
 pub fn bytesrepr_serialize(input: TokenStream) -> TokenStream {
     let crate_name = match detect_crate_name() {
@@ -37,12 +38,14 @@ pub fn bytesrepr_serialize(input: TokenStream) -> TokenStream {
         Ok(input) => serialize_struct(&input, &crate_name),
         Err(_) => panic!("`BytesreprSerialize` is only supported for `struct`s"),
     };
+
     TokenStream::from(match generated {
         Ok(res) => res,
         Err(err) => err.to_compile_error(),
     })
 }
 
+#[cfg(feature = "deserialize")]
 #[proc_macro_derive(BytesreprDeserialize)]
 pub fn bytesrepr_deserialize(input: TokenStream) -> TokenStream {
     let crate_name = match detect_crate_name() {
@@ -54,6 +57,7 @@ pub fn bytesrepr_deserialize(input: TokenStream) -> TokenStream {
         Ok(input) => deserialize_struct(&input, &crate_name),
         Err(_) => panic!("`BytesreprDeserialize` is only supported for `struct`s"),
     };
+
     TokenStream::from(match generated {
         Ok(res) => res,
         Err(err) => err.to_compile_error(),

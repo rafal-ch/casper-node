@@ -1,4 +1,3 @@
-use bytesrepr_derive::{BytesreprDeserialize, BytesreprSerialize};
 use casper_types::{
     bytesrepr::{FromBytes, ToBytes},
     NamedKey,

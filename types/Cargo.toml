@@ -69,6 +69,12 @@ testing = ["proptest", "rand_pcg"]
 gens = ["testing"]
 # DEPRECATED - enabling `std` has no effect.
 std = []
+impl-to-bytes = []
+impl-from-bytes = []
+derive-to-bytes = []
+derive-from-bytes = []
+
+default = ["derive-to-bytes", "derive-from-bytes"]
 
 [[bench]]
 name = "bytesrepr_bench"

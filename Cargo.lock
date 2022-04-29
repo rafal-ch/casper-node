@@ -359,6 +359,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bytesrepr-derive-compatibility-test"
+version = "0.0.1"
+dependencies = [
+ "casper-types",
+]
+
+[[package]]
 name = "bytesrepr-derive-internal"
 version = "0.0.1"
 dependencies = [

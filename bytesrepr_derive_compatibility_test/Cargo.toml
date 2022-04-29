@@ -1,0 +1,15 @@
+[package]
+name = "bytesrepr-derive-compatibility-test"
+version = "0.0.1"
+authors = ["Rafał Chabowski <rafal@casperlabs.io>"]
+edition = "2018"
+description = "Derive proc macro for Bytesrepr, compatibility with manual implementation test"
+documentation = "https://docs.rs/casper-node"
+readme = "README.md"
+homepage = "https://casperlabs.io"
+repository = "https://github.com/CasperLabs/casper-node/"
+
+[dependencies]
+
+[dev-dependencies]
+casper-types = { path = "../types", default-features = false, features = ["impl-to-bytes", "derive-from-bytes"] }
