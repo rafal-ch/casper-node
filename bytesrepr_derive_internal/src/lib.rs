@@ -1,3 +1,8 @@
+#![no_std]
+
+extern crate alloc;
+use alloc::vec::Vec;
+
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::{FieldsNamed, Ident, ItemStruct, Type};
@@ -100,6 +105,12 @@ pub fn deserialize_struct(
 
 #[cfg(test)]
 mod tests {
+    use alloc::{
+        string::{String, ToString},
+        vec,
+        vec::Vec,
+    };
+
     use pretty_assertions::assert_eq;
     use proc_macro2::{Span, TokenStream};
     use quote::quote;

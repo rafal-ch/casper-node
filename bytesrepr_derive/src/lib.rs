@@ -1,3 +1,5 @@
+#![no_std]
+
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use proc_macro_crate::crate_name;
