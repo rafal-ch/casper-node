@@ -31,8 +31,8 @@ pub struct NamedKey {
 
 #[cfg(feature = "impl-to-bytes")]
 impl ToBytes for NamedKey {
-    fn to_bytes(&self) -> Result<Vec<u8>, bytesrepr::Error> {
-        let mut buffer = bytesrepr::allocate_buffer(self)?;
+    fn to_bytes(&self) -> Result<Vec<u8>, crate::bytesrepr::Error> {
+        let mut buffer = crate::bytesrepr::allocate_buffer(self)?;
         buffer.extend(self.name.to_bytes()?);
         buffer.extend(self.key.to_bytes()?);
         Ok(buffer)

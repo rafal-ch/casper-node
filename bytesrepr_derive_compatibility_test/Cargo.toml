@@ -13,3 +13,4 @@ repository = "https://github.com/CasperLabs/casper-node/"
 
 [dev-dependencies]
 casper-types = { path = "../types", default-features = false, features = ["impl-to-bytes", "derive-from-bytes"] }
+proptest = "1.0.0"

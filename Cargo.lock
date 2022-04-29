@@ -363,6 +363,7 @@ name = "bytesrepr-derive-compatibility-test"
 version = "0.0.1"
 dependencies = [
  "casper-types",
+ "proptest",
 ]
 
 [[package]]

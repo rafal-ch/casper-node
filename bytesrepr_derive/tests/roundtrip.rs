@@ -8,7 +8,6 @@ fn struct_simple() {
     struct Simple {
         unsigned_int: u16,
         int: i64,
-        // float: f64, // TODO: No support for float in bytesrepr?
         string: String,
     }
     let original = Simple {
