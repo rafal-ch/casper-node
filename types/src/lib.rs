@@ -1,4 +1,7 @@
 //! Types used to allow creation of Wasm contracts and tests for use on the Casper Platform.
+ 
+// TODO[RC]: Describe
+#![feature(specialization)]
 
 #![cfg_attr(
     not(any(
@@ -59,6 +62,15 @@ mod transfer_result;
 mod uint;
 mod uref;
 
+#[cfg(feature = "impl-from-bytes")]
+mod impl_from_bytes;
+#[cfg(feature = "impl-to-bytes")]
+mod impl_to_bytes;
+
+use alloc::alloc::alloc;
+use bytesrepr::FromBytes;
+use core::{alloc::Layout, any, mem, ptr::NonNull};
+
 pub use access_rights::{
     AccessRights, ContextAccessRights, GrantedAccess, ACCESS_RIGHTS_SERIALIZED_LENGTH,
 };
@@ -108,3 +120,64 @@ pub use crate::{
     era_id::EraId,
     uint::{UIntParseError, U128, U256, U512},
 };
+
+
+
+
+use alloc::vec::Vec;
+
+
+// TODO[RC]: Deduplicate this and adjacent functions
+fn ensure_efficient_serialization<T>() {
+    #[cfg(debug_assertions)]
+    debug_assert_ne!(
+        any::type_name::<T>(),
+        any::type_name::<u8>(),
+        "You should use Bytes newtype wrapper for efficiency"
+    );
+}
+
+// TODO Replace `try_vec_with_capacity` with `Vec::try_reserve_exact` once it's in stable.
+fn try_vec_with_capacity<T>(capacity: usize) -> Result<Vec<T>, bytesrepr::Error> {
+    // see https://doc.rust-lang.org/src/alloc/raw_vec.rs.html#75-98
+    let elem_size = mem::size_of::<T>();
+    let alloc_size = capacity.checked_mul(elem_size).ok_or(bytesrepr::Error::OutOfMemory)?;
+
+    let ptr = if alloc_size == 0 {
+        NonNull::<T>::dangling()
+    } else {
+        let align = mem::align_of::<T>();
+        let layout = Layout::from_size_align(alloc_size, align).map_err(|_| bytesrepr::Error::OutOfMemory)?;
+        let raw_ptr = unsafe { alloc(layout) };
+        let non_null_ptr = NonNull::<u8>::new(raw_ptr).ok_or(bytesrepr::Error::OutOfMemory)?;
+        non_null_ptr.cast()
+    };
+    unsafe { Ok(Vec::from_raw_parts(ptr.as_ptr(), 0, capacity)) }
+}
+
+fn vec_from_vec<T: FromBytes>(bytes: Vec<u8>) -> Result<(Vec<T>, Vec<u8>), bytesrepr::Error> {
+    ensure_efficient_serialization::<T>();
+
+    Vec::<T>::from_bytes(bytes.as_slice()).map(|(x, remainder)| (x, Vec::from(remainder)))
+}
+
+impl<T: FromBytes> FromBytes for Vec<T> {
+    default fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), bytesrepr::Error> {
+        ensure_efficient_serialization::<T>();
+
+        let (count, mut stream) = u32::from_bytes(bytes)?;
+
+        let mut result = try_vec_with_capacity(count as usize)?;
+        for _ in 0..count {
+            let (value, remainder) = T::from_bytes(stream)?;
+            result.push(value);
+            stream = remainder;
+        }
+
+        Ok((result, stream))
+    }
+
+    default fn from_vec(bytes: Vec<u8>) -> Result<(Self, Vec<u8>), bytesrepr::Error> {
+        vec_from_vec(bytes)
+    }
+}

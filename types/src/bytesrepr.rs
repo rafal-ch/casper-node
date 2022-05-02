@@ -80,6 +80,12 @@ pub trait ToBytes {
     }
 }
 
+fn vec_from_vec<T: FromBytes>(bytes: Vec<u8>) -> Result<(Vec<T>, Vec<u8>), Error> {
+    ensure_efficient_serialization::<T>();
+
+    Vec::<T>::from_bytes(bytes.as_slice()).map(|(x, remainder)| (x, Vec::from(remainder)))
+}
+
 /// A type which can be deserialized from a `Vec<u8>`.
 pub trait FromBytes: Sized {
     /// Deserializes the slice into `Self`.
@@ -409,49 +415,6 @@ fn iterator_serialized_length<'a, T: 'a + ToBytes>(ts: impl Iterator<Item = &'a 
     U32_SERIALIZED_LENGTH + ts.map(ToBytes::serialized_length).sum::<usize>()
 }
 
-impl<T: ToBytes> ToBytes for Vec<T> {
-    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        ensure_efficient_serialization::<T>();
-
-        let mut result = try_vec_with_capacity(self.serialized_length())?;
-        let length_32: u32 = self.len().try_into().map_err(|_| Error::NotRepresentable)?;
-        result.append(&mut length_32.to_bytes()?);
-
-        for item in self.iter() {
-            result.append(&mut item.to_bytes()?);
-        }
-
-        Ok(result)
-    }
-
-    fn into_bytes(self) -> Result<Vec<u8>, Error> {
-        ensure_efficient_serialization::<T>();
-
-        let mut result = allocate_buffer(&self)?;
-        let length_32: u32 = self.len().try_into().map_err(|_| Error::NotRepresentable)?;
-        result.append(&mut length_32.to_bytes()?);
-
-        for item in self {
-            result.append(&mut item.into_bytes()?);
-        }
-
-        Ok(result)
-    }
-
-    fn serialized_length(&self) -> usize {
-        iterator_serialized_length(self.iter())
-    }
-
-    fn write_bytes(&self, writer: &mut Vec<u8>) -> Result<(), Error> {
-        let length_32: u32 = self.len().try_into().map_err(|_| Error::NotRepresentable)?;
-        writer.extend_from_slice(&length_32.to_le_bytes());
-        for item in self.iter() {
-            item.write_bytes(writer)?;
-        }
-        Ok(())
-    }
-}
-
 // TODO Replace `try_vec_with_capacity` with `Vec::try_reserve_exact` once it's in stable.
 fn try_vec_with_capacity<T>(capacity: usize) -> Result<Vec<T>, Error> {
     // see https://doc.rust-lang.org/src/alloc/raw_vec.rs.html#75-98
@@ -468,33 +431,6 @@ fn try_vec_with_capacity<T>(capacity: usize) -> Result<Vec<T>, Error> {
         non_null_ptr.cast()
     };
     unsafe { Ok(Vec::from_raw_parts(ptr.as_ptr(), 0, capacity)) }
-}
-
-fn vec_from_vec<T: FromBytes>(bytes: Vec<u8>) -> Result<(Vec<T>, Vec<u8>), Error> {
-    ensure_efficient_serialization::<T>();
-
-    Vec::<T>::from_bytes(bytes.as_slice()).map(|(x, remainder)| (x, Vec::from(remainder)))
-}
-
-impl<T: FromBytes> FromBytes for Vec<T> {
-    fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), Error> {
-        ensure_efficient_serialization::<T>();
-
-        let (count, mut stream) = u32::from_bytes(bytes)?;
-
-        let mut result = try_vec_with_capacity(count as usize)?;
-        for _ in 0..count {
-            let (value, remainder) = T::from_bytes(stream)?;
-            result.push(value);
-            stream = remainder;
-        }
-
-        Ok((result, stream))
-    }
-
-    fn from_vec(bytes: Vec<u8>) -> Result<(Self, Vec<u8>), Error> {
-        vec_from_vec(bytes)
-    }
 }
 
 impl<T: ToBytes> ToBytes for VecDeque<T> {

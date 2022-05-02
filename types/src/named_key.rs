@@ -1,7 +1,14 @@
 // TODO - remove once schemars stops causing warning.
 #![allow(clippy::field_reassign_with_default)]
 
-use alloc::{string::String, vec::Vec};
+use alloc::string::String;
+use alloc::alloc::alloc;
+use alloc::alloc::Layout;
+use alloc::vec::Vec;
+use core::ptr::NonNull;
+use crate::bytesrepr::Error;
+use core::any;
+use core::mem;
 
 #[cfg(feature = "derive-from-bytes")]
 use bytesrepr_derive::BytesreprDeserialize;
@@ -27,28 +34,4 @@ pub struct NamedKey {
     pub name: String,
     /// The value of the entry: a casper `Key` type.
     pub key: String,
-}
-
-#[cfg(feature = "impl-to-bytes")]
-impl ToBytes for NamedKey {
-    fn to_bytes(&self) -> Result<Vec<u8>, crate::bytesrepr::Error> {
-        let mut buffer = crate::bytesrepr::allocate_buffer(self)?;
-        buffer.extend(self.name.to_bytes()?);
-        buffer.extend(self.key.to_bytes()?);
-        Ok(buffer)
-    }
-
-    fn serialized_length(&self) -> usize {
-        self.name.serialized_length() + self.key.serialized_length()
-    }
-}
-
-#[cfg(feature = "impl-from-bytes")]
-impl FromBytes for NamedKey {
-    fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), bytesrepr::Error> {
-        let (name, remainder) = String::from_bytes(bytes)?;
-        let (key, remainder) = String::from_bytes(remainder)?;
-        let named_key = NamedKey { name, key };
-        Ok((named_key, remainder))
-    }
 }

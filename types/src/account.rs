@@ -16,8 +16,21 @@ use core::{
     iter,
 };
 
+use crate::bytesrepr::Error;
+use alloc::alloc::alloc;
+use alloc::alloc::Layout;
+use alloc::string::String;
+use core::any;
+use core::mem;
+use core::ptr::NonNull;
+
 #[cfg(feature = "datasize")]
 use datasize::DataSize;
+
+#[cfg(feature = "derive-from-bytes")]
+use bytesrepr_derive::BytesreprDeserialize;
+#[cfg(feature = "derive-to-bytes")]
+use bytesrepr_derive::BytesreprSerialize;
 
 pub use self::{
     account_hash::{AccountHash, ACCOUNT_HASH_FORMATTED_STRING_PREFIX, ACCOUNT_HASH_LENGTH},
@@ -36,6 +49,10 @@ use crate::{
 /// Represents an Account in the global state.
 #[derive(PartialEq, Eq, Clone, Debug, Serialize)]
 #[cfg_attr(feature = "datasize", derive(DataSize))]
+#[cfg_attr(feature = "datasize", derive(DataSize))]
+#[cfg_attr(feature = "json-schema", derive(JsonSchema))]
+#[cfg_attr(feature = "derive-to-bytes", derive(BytesreprSerialize))]
+#[cfg_attr(feature = "derive-from-bytes", derive(BytesreprDeserialize))]
 pub struct Account {
     account_hash: AccountHash,
     named_keys: NamedKeys,
@@ -283,26 +300,6 @@ impl ToBytes for Account {
         self.associated_keys().write_bytes(writer)?;
         self.action_thresholds().write_bytes(writer)?;
         Ok(())
-    }
-}
-
-impl FromBytes for Account {
-    fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), bytesrepr::Error> {
-        let (account_hash, rem) = AccountHash::from_bytes(bytes)?;
-        let (named_keys, rem) = NamedKeys::from_bytes(rem)?;
-        let (main_purse, rem) = URef::from_bytes(rem)?;
-        let (associated_keys, rem) = AssociatedKeys::from_bytes(rem)?;
-        let (action_thresholds, rem) = ActionThresholds::from_bytes(rem)?;
-        Ok((
-            Account {
-                account_hash,
-                named_keys,
-                main_purse,
-                associated_keys,
-                action_thresholds,
-            },
-            rem,
-        ))
     }
 }
 
