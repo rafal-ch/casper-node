@@ -744,6 +744,7 @@ impl Distribution<Transform> for Standard {
                     let _ = named_keys.push(NamedKey {
                         name: rng.gen::<u64>().to_string(),
                         key: rng.gen::<u64>().to_string(),
+                        ..Default::default()
                     });
                 }
                 Transform::AddKeys(named_keys)
