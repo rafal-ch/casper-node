@@ -80,6 +80,8 @@ pub trait ToBytes {
     }
 }
 
+pub const MAGIC_BYTES: &[u8] = &[0xff, 0xfe, 0xbb, 0xaa];
+
 /// A type which can be deserialized from a `Vec<u8>`.
 pub trait FromBytes: Sized {
     /// Deserializes the slice into `Self`.
@@ -87,6 +89,9 @@ pub trait FromBytes: Sized {
     /// Deserializes the `Vec<u8>` into `Self`.
     fn from_vec(bytes: Vec<u8>) -> Result<(Self, Vec<u8>), Error> {
         Self::from_bytes(bytes.as_slice()).map(|(x, remainder)| (x, Vec::from(remainder)))
+    }
+    fn is_legacy(bytes: &[u8]) -> bool {
+        !bytes.starts_with(MAGIC_BYTES)
     }
 }
 

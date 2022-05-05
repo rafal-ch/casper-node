@@ -9,9 +9,7 @@ use datasize::DataSize;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::bytesrepr::{self, Bytes, FromBytes, ToBytes};
-
-const MAGIC_BYTES: &[u8] = &[0xff, 0xfe, 0xbb, 0xaa];
+use crate::bytesrepr::{self, Bytes, FromBytes, ToBytes, MAGIC_BYTES};
 
 /// A named key.
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Default, Debug)]
@@ -25,10 +23,6 @@ pub struct NamedKey {
     pub key: String,
     /// The brand new, additional field
     pub id: u64,
-}
-
-fn is_legacy(bytes: &[u8]) -> bool {
-    !bytes.starts_with(MAGIC_BYTES)
 }
 
 impl ToBytes for NamedKey {
@@ -69,7 +63,7 @@ impl FromBytes for NamedKey {
             }
         }
 
-        if is_legacy(bytes) {
+        if Self::is_legacy(bytes) {
             let (legacy_named_key, remainder) = NamedKeyLegacy::from_bytes(&bytes)?;
             Ok((
                 crate::NamedKey {
