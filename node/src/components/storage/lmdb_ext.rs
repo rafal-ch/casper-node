@@ -19,9 +19,8 @@ use thiserror::Error;
 use casper_types::{
     bytesrepr::{self, FromBytes, ToBytes},
     system::auction::UnbondingPurse,
+    UREF_SERIALIZED_LENGTH,
 };
-
-const UNBONDING_PURSE_V2_MAGIC_BYTES: &[u8] = &[121, 17, 133, 179, 91, 63, 69, 222];
 
 /// Error wrapper for lower-level storage errors.
 ///
@@ -249,17 +248,16 @@ pub(super) fn deserialize<T: DeserializeOwned>(raw: &[u8]) -> Result<T, LmdbExtE
 
 /// Returns `true` if the specified bytes represent the legacy version of `UnbondingPurse`.
 fn is_legacy(raw: &[u8]) -> bool {
-    !raw.starts_with(UNBONDING_PURSE_V2_MAGIC_BYTES)
+    if raw.len() <= UREF_SERIALIZED_LENGTH {
+        // TODO[RC]: Error here?
+        return true;
+    }
+
+    !(raw[UREF_SERIALIZED_LENGTH] & 0b10000000 == 0b10000000)
 }
 
 /// Deserializes `UnbondingPurse` from a buffer.
-/// To provide backward compatibility with the previous version of the `UnbondingPurse`,
-/// it checks if the raw bytes stream begins with "magic bytes". If yes, the magic bytes are
-/// stripped and the struct is deserialized as a new version. Otherwise, the raw bytes
-/// are treated as bytes representing the legacy `UnbondingPurse` and deserialized accordingly.
-/// In order for the latter scenario to work, the raw bytes stream is extended with
-/// bytes that represent the `None` serialized with `bincode` - these bytes simulate
-/// the existence of the `new_validator` field added to the `UnbondingPurse` struct.
+/// TODO[RC]: Proper comment
 pub(super) fn deserialize_unbonding_purse<T: DeserializeOwned>(
     raw: &[u8],
 ) -> Result<T, LmdbExtError> {
@@ -267,7 +265,7 @@ pub(super) fn deserialize_unbonding_purse<T: DeserializeOwned>(
     if is_legacy(raw) {
         deserialize(&[raw, &BINCODE_ENCODED_NONE].concat())
     } else {
-        deserialize(&raw[UNBONDING_PURSE_V2_MAGIC_BYTES.len()..])
+        deserialize(&eject_magic_byte(raw)?)
     }
 }
 
@@ -278,14 +276,37 @@ pub(super) fn serialize<T: Serialize>(value: &T) -> Result<Vec<u8>, LmdbExtError
 }
 
 /// Serializes `UnbondingPurse` into a buffer.
-/// To provide backward compatibility with the previous version of the `UnbondingPurse`,
-/// the serialized bytes are prefixed with the "magic bytes", which will be used by the
-/// deserialization routine to detect the version of the `UnbondingPurse` struct.
+/// TODO[RC]: Proper comment
 #[inline(always)]
 pub(super) fn serialize_unbonding_purse<T: Serialize>(value: &T) -> Result<Vec<u8>, LmdbExtError> {
-    let mut serialized = UNBONDING_PURSE_V2_MAGIC_BYTES.to_vec();
-    serialized.extend(bincode::serialize(value).map_err(|err| LmdbExtError::Other(Box::new(err)))?);
-    Ok(serialized)
+    let mut raw_bytes =
+        bincode::serialize(value).map_err(|err| LmdbExtError::Other(Box::new(err)))?;
+    inject_magic_byte(&mut raw_bytes)?;
+    Ok(raw_bytes)
+}
+
+fn eject_magic_byte(raw: &[u8]) -> Result<Vec<u8>, LmdbExtError> {
+    if raw.len() <= UREF_SERIALIZED_LENGTH {
+        return Err(LmdbExtError::Other(
+            "The raw bytes don't represent `UnbondingPurse`, can't eject magic byte".into(),
+        ));
+    }
+
+    let mut bytes: Vec<_> = raw.iter().copied().collect();
+    bytes[UREF_SERIALIZED_LENGTH] ^= 0b10000000;
+    Ok(bytes)
+}
+
+// TODO[RC]: Add comment, UTs...
+fn inject_magic_byte(raw: &mut [u8]) -> Result<(), LmdbExtError> {
+    if raw.len() <= UREF_SERIALIZED_LENGTH {
+        return Err(LmdbExtError::Other(
+            "The raw bytes don't represent `UnbondingPurse`, can't inject magic byte".into(),
+        ));
+    }
+
+    raw[UREF_SERIALIZED_LENGTH] |= 0b10000000;
+    Ok(())
 }
 
 /// Deserializes from a buffer.

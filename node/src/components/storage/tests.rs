@@ -2083,8 +2083,8 @@ fn should_read_legacy_unbonding_purse() {
     // that are consistent with what we keep in the current storage.
     const LEGACY_BYTES: &str = "0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e07010000002000000000000000197f6b23e16c8532c6abc838facd5ea789be0c76b2920334039bfa8b3d368d610100000020000000000000004508a07aa941707f3eb2db94c8897a80b2c1197476b6de213ac273df7d86c4ffffffffffffffffff40feffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 
-    let decoded = base16::decode(LEGACY_BYTES).expect("decode");
-    let deserialized: UnbondingPurse = deserialize_internal(&decoded)
+    let mut decoded = base16::decode(LEGACY_BYTES).expect("decode");
+    let deserialized: UnbondingPurse = deserialize_internal(&mut decoded)
         .expect("should deserialize w/o error")
         .expect("should be Some");
 
@@ -2115,8 +2115,8 @@ fn unbonding_purse_serialization_roundtrip() {
         }),
     );
 
-    let serialized = serialize_internal(&original).expect("serialization");
-    let deserialized: UnbondingPurse = deserialize_internal(&serialized)
+    let mut serialized = serialize_internal(&original).expect("serialization");
+    let deserialized: UnbondingPurse = deserialize_internal(&mut serialized)
         .expect("should deserialize w/o error")
         .expect("should be Some");
 
