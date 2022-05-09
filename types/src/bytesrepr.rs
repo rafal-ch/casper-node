@@ -80,7 +80,7 @@ pub trait ToBytes {
     }
 }
 
-pub const MAGIC_BYTES: &[u8] = &[0xff, 0xfe, 0xbb, 0xaa];
+pub const MAGIC_BYTES: &[u8] = &[121, 17, 133, 179, 91, 63, 69, 222];
 
 /// A type which can be deserialized from a `Vec<u8>`.
 pub trait FromBytes: Sized {
