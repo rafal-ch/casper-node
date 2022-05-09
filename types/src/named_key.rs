@@ -1,7 +1,11 @@
 // TODO - remove once schemars stops causing warning.
 #![allow(clippy::field_reassign_with_default)]
 
-use alloc::{collections::BTreeMap, string::String, vec::Vec};
+use alloc::{
+    collections::BTreeMap,
+    string::{String, ToString},
+    vec::Vec,
+};
 
 #[cfg(feature = "datasize")]
 use datasize::DataSize;
