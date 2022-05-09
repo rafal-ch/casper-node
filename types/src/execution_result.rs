@@ -38,7 +38,7 @@ use crate::{
     account::AccountHash,
     bytesrepr::{self, FromBytes, ToBytes, U8_SERIALIZED_LENGTH},
     system::auction::{Bid, EraInfo, UnbondingPurse},
-    CLValue, DeployInfo, NamedKey, Transfer, TransferAddr, U128, U256, U512,
+    CLValue, DeployInfo, NamedKeyV1, Transfer, TransferAddr, U128, U256, U512,
 };
 
 #[derive(FromPrimitive, ToPrimitive, Debug)]
@@ -543,7 +543,7 @@ pub enum Transform {
     /// Adds the given `U512`.
     AddUInt512(U512),
     /// Adds the given collection of named keys.
-    AddKeys(Vec<NamedKey>),
+    AddKeys(Vec<NamedKeyV1>),
     /// A failed transformation, containing an error message.
     Failure(String),
 }
@@ -703,7 +703,7 @@ impl FromBytes for Transform {
                 Ok((Transform::AddUInt512(value_u512), remainder))
             }
             TransformTag::AddKeys => {
-                let (value, remainder) = Vec::<NamedKey>::from_bytes(remainder)?;
+                let (value, remainder) = Vec::<NamedKeyV1>::from_bytes(remainder)?;
                 Ok((Transform::AddKeys(value), remainder))
             }
             TransformTag::Failure => {
@@ -741,7 +741,7 @@ impl Distribution<Transform> for Standard {
             11 => {
                 let mut named_keys = Vec::new();
                 for _ in 0..rng.gen_range(1..6) {
-                    let _ = named_keys.push(NamedKey {
+                    let _ = named_keys.push(NamedKeyV1 {
                         name: rng.gen::<u64>().to_string(),
                         key: rng.gen::<u64>().to_string(),
                     });

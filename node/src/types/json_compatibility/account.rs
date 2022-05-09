@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::{rpcs::docs::DocExample, types::json_compatibility::vectorize};
 use casper_types::{
     account::{Account as ExecutionEngineAccount, AccountHash},
-    NamedKey, PublicKey, SecretKey, URef,
+    NamedKeyV1, PublicKey, SecretKey, URef,
 };
 
 static ACCOUNT: Lazy<Account> = Lazy::new(|| {
@@ -57,7 +57,7 @@ struct ActionThresholds {
 pub struct Account {
     account_hash: AccountHash,
     #[data_size(skip)]
-    named_keys: Vec<NamedKey>,
+    named_keys: Vec<NamedKeyV1>,
     #[data_size(skip)]
     main_purse: URef,
     associated_keys: Vec<AssociatedKey>,

@@ -381,7 +381,7 @@ impl From<&Transform> for casper_types::Transform {
             Transform::AddKeys(named_keys) => casper_types::Transform::AddKeys(
                 named_keys
                     .iter()
-                    .map(|(name, key)| casper_types::NamedKey {
+                    .map(|(name, key)| casper_types::NamedKeyV1 {
                         name: name.clone(),
                         key: key.to_formatted_string(),
                     })

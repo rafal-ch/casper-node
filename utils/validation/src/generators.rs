@@ -10,7 +10,7 @@ use casper_types::{
     AccessRights, CLType, CLTyped, CLValue, Contract, ContractHash, ContractPackage,
     ContractPackageHash, ContractVersionKey, ContractWasm, ContractWasmHash, DeployHash,
     DeployInfo, EntryPoint, EntryPointAccess, EntryPointType, EntryPoints, EraId, Group, Key,
-    NamedKey, Parameter, ProtocolVersion, PublicKey, SecretKey, StoredValue, Transfer,
+    NamedKeyV1, Parameter, ProtocolVersion, PublicKey, SecretKey, StoredValue, Transfer,
     TransferAddr, Transform, URef, U128, U256, U512,
 };
 use casper_validation::{
@@ -224,11 +224,11 @@ pub fn make_abi_test_fixtures() -> Result<TestFixtures, Error> {
             let mut named_keys = Vec::new();
             let key_hash = Key::Hash([42; 32]);
             let key_uref = Key::URef(URef::new([43; 32], AccessRights::READ_ADD_WRITE));
-            named_keys.push(NamedKey {
+            named_keys.push(NamedKeyV1 {
                 name: "key 1".to_string(),
                 key: key_hash.to_formatted_string(),
             });
-            named_keys.push(NamedKey {
+            named_keys.push(NamedKeyV1 {
                 name: "uref".to_string(),
                 key: key_uref.to_formatted_string(),
             });
