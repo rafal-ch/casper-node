@@ -87,7 +87,7 @@ pub use key::{
     DICTIONARY_ITEM_KEY_MAX_LENGTH, KEY_DICTIONARY_LENGTH, KEY_HASH_LENGTH,
 };
 pub use motes::Motes;
-pub use named_key::NamedKeyV1;
+pub use named_key::{NamedKey, NamedKeyV1};
 pub use phase::{Phase, PHASE_SERIALIZED_LENGTH};
 pub use protocol_version::{ProtocolVersion, VersionCheckResult};
 #[doc(inline)]
