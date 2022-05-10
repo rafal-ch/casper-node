@@ -103,6 +103,7 @@ pretty_assertions = "0.7.2"
 rand_core = "0.6.2"
 reqwest = { version = "0.11.3", features = ["stream"] }
 tokio = { version = "1", features = ["test-util"] }
+criterion = "0.3.5"
 
 [features]
 vendored-openssl = ['openssl/vendored']
@@ -113,6 +114,10 @@ path = "src/app/main.rs"
 bench = false
 doctest = false
 test = false
+
+[[bench]]
+name = "serialization_bench"
+harness = false
 
 [package.metadata.deb]
 features = ["vendored-openssl"]

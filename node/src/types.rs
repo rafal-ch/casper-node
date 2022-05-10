@@ -22,9 +22,11 @@ use rand_chacha::ChaCha20Rng;
 
 pub use available_block_range::{AvailableBlockRange, AvailableBlockRangeError};
 pub use block::{
+    from_bytes_block_map,
     json_compatibility::{JsonBlock, JsonBlockHeader},
-    Block, BlockBody, BlockHash, BlockHeader, BlockSignatures, FinalitySignature, FinalizedBlock,
-    HashingAlgorithmVersion, MerkleBlockBody, MerkleBlockBodyPart, MerkleLinkedListNode,
+    to_bytes_block_map, Block, BlockBody, BlockHash, BlockHeader, BlockSignatures,
+    FinalitySignature, FinalizedBlock, HashingAlgorithmVersion, MerkleBlockBody,
+    MerkleBlockBodyPart, MerkleLinkedListNode,
 };
 pub(crate) use block::{BlockHeaderWithMetadata, BlockPayload, BlockWithMetadata};
 pub use chainspec::Chainspec;

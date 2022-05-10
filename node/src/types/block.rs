@@ -1,7 +1,6 @@
 // TODO - remove once schemars stops causing warning.
 #![allow(clippy::field_reassign_with_default)]
 
-#[cfg(test)]
 use std::iter;
 use std::{
     array::TryFromSliceError,
@@ -11,25 +10,23 @@ use std::{
     fmt::{self, Debug, Display, Formatter},
 };
 
+use casper_types::bytesrepr::Bytes;
 use datasize::DataSize;
 use derive_more::Into;
 use hex_fmt::HexList;
 use itertools::Itertools;
 use once_cell::sync::Lazy;
-#[cfg(test)]
 use rand::Rng;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use casper_hashing::Digest;
-#[cfg(test)]
 use casper_types::testing::TestRng;
 use casper_types::{
     bytesrepr::{self, FromBytes, ToBytes},
     crypto, EraId, ProtocolVersion, PublicKey, SecretKey, Signature, Timestamp, U512,
 };
-#[cfg(test)]
 use casper_types::{crypto::generate_ed25519_keypair, system::auction::BLOCK_REWARD};
 
 use crate::{
@@ -183,7 +180,6 @@ static JSON_BLOCK_HEADER: Lazy<JsonBlockHeader> = Lazy::new(|| {
 
 // This should be clearly specified because the `verifiable_chunked_hash_activation`
 // parameter used in various tests strongly rely on this value.
-#[cfg(test)]
 const MAX_ERA_FOR_RANDOM_BLOCK: u64 = 6;
 
 /// Error returned from constructing a `Block`.
@@ -497,7 +493,6 @@ impl FinalizedBlock {
     }
 
     /// Generates a random instance using a `TestRng`, but using the specified era ID and height.
-    #[cfg(test)]
     pub fn random_with_specifics(
         rng: &mut TestRng,
         era_id: EraId,
@@ -974,6 +969,132 @@ impl Display for BlockHeader {
         }
         Ok(())
     }
+}
+
+pub fn from_bytes_block_header_map(bytes: &[u8]) -> (BlockHeader, &[u8]) {
+    let (field_map, remainder) = BTreeMap::<String, Bytes>::from_bytes(&bytes).unwrap();
+
+    let field = field_map.get("parent_hash").unwrap();
+    let (parent_hash, _) = BlockHash::from_bytes(field).unwrap();
+
+    let field = field_map.get("state_root_hash").unwrap();
+    let (state_root_hash, _) = Digest::from_bytes(field).unwrap();
+
+    let field = field_map.get("body_hash").unwrap();
+    let (body_hash, _) = Digest::from_bytes(field).unwrap();
+
+    let field = field_map.get("random_bit").unwrap();
+    let (random_bit, _) = bool::from_bytes(field).unwrap();
+
+    let field = field_map.get("accumulated_seed").unwrap();
+    let (accumulated_seed, _) = Digest::from_bytes(field).unwrap();
+
+    let field = field_map.get("era_end").unwrap();
+    let (era_end, _) = Option::<EraEnd>::from_bytes(field).unwrap();
+
+    let field = field_map.get("timestamp").unwrap();
+    let (timestamp, _) = Timestamp::from_bytes(field).unwrap();
+
+    let field = field_map.get("era_id").unwrap();
+    let (era_id, _) = EraId::from_bytes(field).unwrap();
+
+    let field = field_map.get("height").unwrap();
+    let (height, _) = u64::from_bytes(field).unwrap();
+
+    let field = field_map.get("protocol_version").unwrap();
+    let (protocol_version, _) = ProtocolVersion::from_bytes(field).unwrap();
+
+    let block_header = BlockHeader {
+        parent_hash,
+        state_root_hash,
+        body_hash,
+        random_bit,
+        accumulated_seed,
+        era_end,
+        timestamp,
+        era_id,
+        height,
+        protocol_version,
+    };
+    (block_header, remainder)
+}
+
+pub fn to_bytes_block_header_map(block_header: &BlockHeader) -> Vec<u8> {
+    let mut field_map = BTreeMap::<String, Bytes>::new();
+    field_map.insert(
+        "parent_hash".to_string(),
+        Bytes::from(block_header.parent_hash.to_bytes().unwrap()),
+    );
+    field_map.insert(
+        "state_root_hash".to_string(),
+        Bytes::from(block_header.state_root_hash.to_bytes().unwrap()),
+    );
+    field_map.insert(
+        "body_hash".to_string(),
+        Bytes::from(block_header.body_hash.to_bytes().unwrap()),
+    );
+    field_map.insert(
+        "random_bit".to_string(),
+        Bytes::from(block_header.random_bit.to_bytes().unwrap()),
+    );
+    field_map.insert(
+        "accumulated_seed".to_string(),
+        Bytes::from(block_header.accumulated_seed.to_bytes().unwrap()),
+    );
+    field_map.insert(
+        "era_end".to_string(),
+        Bytes::from(block_header.era_end.to_bytes().unwrap()),
+    );
+    field_map.insert(
+        "timestamp".to_string(),
+        Bytes::from(block_header.timestamp.to_bytes().unwrap()),
+    );
+    field_map.insert(
+        "era_id".to_string(),
+        Bytes::from(block_header.era_id.to_bytes().unwrap()),
+    );
+    field_map.insert(
+        "height".to_string(),
+        Bytes::from(block_header.height.to_bytes().unwrap()),
+    );
+    field_map.insert(
+        "protocol_version".to_string(),
+        Bytes::from(block_header.protocol_version.to_bytes().unwrap()),
+    );
+    field_map.to_bytes().unwrap()
+}
+
+pub fn from_bytes_block_map(bytes: &[u8]) -> (Block, &[u8]) {
+    let (field_map, remainder) = BTreeMap::<String, Bytes>::from_bytes(&bytes).unwrap();
+
+    let field = field_map.get("hash").unwrap();
+    let (hash, _) = BlockHash::from_bytes(field).unwrap();
+
+    let field = field_map.get("header").unwrap();
+    let (header, _) = from_bytes_block_header_map(field);
+
+    let field = field_map.get("body").unwrap();
+    let (body, _) = BlockBody::from_bytes(field).unwrap();
+
+    let block = Block { hash, header, body };
+    (block, remainder)
+}
+
+pub fn to_bytes_block_map(block: &Block) -> Vec<u8> {
+    let mut field_map = BTreeMap::<String, Bytes>::new();
+    field_map.insert(
+        "hash".to_string(),
+        Bytes::from(block.hash.to_bytes().unwrap()),
+    );
+    field_map.insert(
+        "header".to_string(),
+        Bytes::from(to_bytes_block_header_map(block.header())),
+    );
+    field_map.insert(
+        "body".to_string(),
+        Bytes::from(block.body.to_bytes().unwrap()),
+    );
+    field_map.to_bytes().unwrap()
 }
 
 impl ToBytes for BlockHeader {
@@ -1590,7 +1711,6 @@ impl Block {
     }
 
     /// Generates a random instance using a `TestRng`.
-    #[cfg(test)]
     pub fn random(rng: &mut TestRng) -> Self {
         let era = rng.gen_range(0..MAX_ERA_FOR_RANDOM_BLOCK);
         let height = era * 10 + rng.gen_range(0..10);
@@ -1661,7 +1781,6 @@ impl Block {
     }
 
     /// Generates a random instance using a `TestRng`, but using the specified values.
-    #[cfg(test)]
     pub fn random_with_specifics(
         rng: &mut TestRng,
         era_id: EraId,
@@ -2182,6 +2301,7 @@ mod tests {
     use std::rc::Rc;
 
     use casper_types::{bytesrepr, testing::TestRng};
+    use criterion::black_box;
 
     use super::*;
 
@@ -2374,5 +2494,37 @@ mod tests {
             *block.header().body_hash(),
             Digest::hash_slice_rfold(&hashes[..])
         );
+    }
+
+    #[test]
+    fn rc_test() {
+        let mut rng = TestRng::from_seed([1u8; 16]);
+        let block = Block::random(&mut rng);
+        let bytes = block.to_bytes().unwrap();
+        let _block = Block::from_bytes(black_box(&bytes));
+    }
+
+    #[test]
+    fn field_map_block_header_roundtrip() {
+        let mut rng = TestRng::from_seed([1u8; 16]);
+        let block = Block::random(&mut rng);
+        let header = block.header();
+
+        let bytes = to_bytes_block_header_map(&header);
+        let deserialized = from_bytes_block_header_map(&bytes).0;
+
+        assert_eq!(*header, deserialized);
+    }
+
+    #[test]
+    fn field_map_block_roundtrip() {
+        let mut rng = TestRng::from_seed([1u8; 16]);
+        let block = Block::random(&mut rng);
+
+        let bytes = to_bytes_block_map(&block);
+        dbg!(&bytes);
+        let deserialized = from_bytes_block_map(&bytes).0;
+
+        assert_eq!(block, deserialized);
     }
 }
