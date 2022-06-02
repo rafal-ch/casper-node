@@ -4,7 +4,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     convert::TryFrom,
     fs::{self, File},
-    thread,
+    iter, thread,
 };
 
 use lmdb::{Cursor, Transaction};
@@ -14,7 +14,10 @@ use serde::{Deserialize, Serialize};
 use smallvec::smallvec;
 
 use casper_hashing::Digest;
-use casper_types::{EraId, ExecutionResult, ProtocolVersion, PublicKey, SecretKey, U512};
+use casper_types::{
+    system::auction::UnbondingPurse, testing::TestRng, AccessRights, EraId, ExecutionResult,
+    ProtocolVersion, PublicKey, SecretKey, URef, U512,
+};
 
 use super::{
     construct_block_body_to_block_header_reverse_lookup, garbage_collect_block_body_v2_db,
@@ -26,13 +29,13 @@ use crate::{
         consensus::EraReport,
         storage::lmdb_ext::{TransactionExt, WriteTransactionExt},
     },
-    crypto::AsymmetricKeyExt,
     effect::{requests::StorageRequest, Multiple},
-    testing::{ComponentHarness, TestRng, UnitTestEvent},
+    storage::lmdb_ext::{deserialize_internal, serialize_internal},
+    testing::{ComponentHarness, UnitTestEvent},
     types::{
-        AvailableBlockRange, Block, BlockHash, BlockHeader, BlockPayload, BlockSignatures, Deploy,
-        DeployHash, DeployMetadata, DeployWithFinalizedApprovals, FinalitySignature,
-        FinalizedBlock,
+        AvailableBlockRange, Block, BlockHash, BlockHashAndHeight, BlockHeader, BlockPayload,
+        BlockSignatures, Deploy, DeployHash, DeployMetadata, DeployMetadataExt,
+        DeployWithFinalizedApprovals, FinalitySignature, FinalizedBlock,
     },
     utils::WithDir,
 };
@@ -148,7 +151,6 @@ fn random_signatures(rng: &mut TestRng, block: &Block) -> BlockSignatures {
     block_signatures
 }
 
-// TODO: This is deprecated (we will never make this request in the actual reactors!)
 /// Requests block header at a specific height from a storage component.
 fn get_block_header_at_height(storage: &mut Storage, height: u64) -> Option<BlockHeader> {
     storage
@@ -172,6 +174,26 @@ fn get_block(
     let response = harness.send_request(storage, move |responder| {
         StorageRequest::GetBlock {
             block_hash,
+            responder,
+        }
+        .into()
+    });
+    assert!(harness.is_idle());
+    response
+}
+
+/// Loads a block header by height from a storage component.
+/// Requesting a block header by height is required currently by the RPC
+/// component.
+fn get_block_header_by_height(
+    harness: &mut ComponentHarness<UnitTestEvent>,
+    storage: &mut Storage,
+    block_height: u64,
+) -> Option<BlockHeader> {
+    let response = harness.send_request(storage, move |responder| {
+        StorageRequest::GetBlockHeaderByHeight {
+            block_height,
+            only_from_available_block_range: false,
             responder,
         }
         .into()
@@ -226,7 +248,7 @@ fn get_naive_deploy_and_metadata(
     harness: &mut ComponentHarness<UnitTestEvent>,
     storage: &mut Storage,
     deploy_hash: DeployHash,
-) -> Option<(Deploy, DeployMetadata)> {
+) -> Option<(Deploy, DeployMetadataExt)> {
     let response = harness.send_request(storage, |responder| {
         StorageRequest::GetDeployAndMetadata {
             deploy_hash,
@@ -305,6 +327,23 @@ fn put_deploy(
     });
     assert!(harness.is_idle());
     response
+}
+
+fn insert_to_deploy_index(
+    storage: &mut Storage,
+    deploy: Deploy,
+    block_hash_and_height: BlockHashAndHeight,
+) -> bool {
+    let mut indices = storage
+        .storage
+        .indices
+        .write()
+        .expect("Poisoned indices lock.");
+
+    indices
+        .deploy_hash_index
+        .insert(*deploy.id(), block_hash_and_height)
+        .is_none()
 }
 
 /// Stores execution results in a storage component.
@@ -412,6 +451,7 @@ fn test_get_block_header_and_sufficient_finality_signatures_by_height() {
                     ProtocolVersion::V1_0_0,
                     is_switch,
                     verifiable_chunked_hash_activation,
+                    None,
                 )
             };
 
@@ -571,6 +611,7 @@ fn can_retrieve_block_by_height() {
                 ProtocolVersion::from_parts(1, 5, 0),
                 true,
                 block_spec.verifiable_chunked_hash_activation,
+                None,
             ));
             let block_14 = Box::new(Block::random_with_specifics(
                 &mut harness.rng,
@@ -579,6 +620,7 @@ fn can_retrieve_block_by_height() {
                 ProtocolVersion::from_parts(1, 5, 0),
                 false,
                 block_spec.verifiable_chunked_hash_activation,
+                None,
             ));
             let block_99 = Box::new(Block::random_with_specifics(
                 &mut harness.rng,
@@ -587,6 +629,7 @@ fn can_retrieve_block_by_height() {
                 ProtocolVersion::from_parts(1, 5, 0),
                 true,
                 block_spec.verifiable_chunked_hash_activation,
+                None,
             ));
 
             let mut storage =
@@ -724,6 +767,7 @@ fn different_block_at_height_is_fatal() {
         ProtocolVersion::V1_0_0,
         false,
         verifiable_chunked_hash_activation,
+        None,
     ));
     let block_44_b = Box::new(Block::random_with_specifics(
         &mut harness.rng,
@@ -732,6 +776,7 @@ fn different_block_at_height_is_fatal() {
         ProtocolVersion::V1_0_0,
         false,
         verifiable_chunked_hash_activation,
+        None,
     ));
 
     let was_new = put_block(&mut harness, &mut storage, block_44_a.clone());
@@ -775,6 +820,14 @@ fn can_retrieve_store_and_load_deploys() {
     let deploy = Box::new(Deploy::random(&mut harness.rng));
 
     let was_new = put_deploy(&mut harness, &mut storage, deploy.clone());
+    let block_hash_and_height = BlockHashAndHeight::random(&mut harness.rng);
+    // Insert to the deploy hash index as well so that we can perform the GET later.
+    // Also check that we don't have an entry there for this deploy.
+    assert!(insert_to_deploy_index(
+        &mut storage,
+        *deploy.clone(),
+        block_hash_and_height
+    ));
     assert!(was_new, "putting deploy should have returned `true`");
 
     // Storing the same deploy again should work, but yield a result of `false`.
@@ -783,13 +836,18 @@ fn can_retrieve_store_and_load_deploys() {
         !was_new_second_time,
         "storing deploy the second time should have returned `false`"
     );
+    assert!(!insert_to_deploy_index(
+        &mut storage,
+        *deploy.clone(),
+        block_hash_and_height
+    ));
 
     // Retrieve the stored deploy.
     let response = get_naive_deploys(&mut harness, &mut storage, smallvec![*deploy.id()]);
     assert_eq!(response, vec![Some(deploy.as_ref().clone())]);
 
-    // Finally try to get the metadata as well. Since we did not store any, we expect empty default
-    // metadata to present.
+    // Finally try to get the metadata as well. Since we did not store any, we expect to get the
+    // block hash and height from the indices.
     let (deploy_response, metadata_response) = harness
         .send_request(&mut storage, |responder| {
             StorageRequest::GetDeployAndMetadata {
@@ -801,7 +859,47 @@ fn can_retrieve_store_and_load_deploys() {
         .expect("no deploy with metadata returned");
 
     assert_eq!(deploy_response.into_naive(), *deploy);
-    assert_eq!(metadata_response, DeployMetadata::default());
+    match metadata_response {
+        DeployMetadataExt::Metadata(_) => {
+            panic!("We didn't store any metadata but we received it in the response.")
+        }
+        DeployMetadataExt::BlockInfo(recv_block_hash_and_height) => {
+            assert_eq!(block_hash_and_height, recv_block_hash_and_height)
+        }
+        DeployMetadataExt::Empty => panic!(
+            "We stored block info in the deploy hash index \
+                                            but we received nothing in the response."
+        ),
+    }
+
+    // Create a random deploy, store and load it.
+    let deploy = Box::new(Deploy::random(&mut harness.rng));
+
+    assert!(put_deploy(&mut harness, &mut storage, deploy.clone()));
+    // Don't insert to the deploy hash index. Since we have no execution results
+    // either, we should receive an empty metadata response.
+    let (deploy_response, metadata_response) = harness
+        .send_request(&mut storage, |responder| {
+            StorageRequest::GetDeployAndMetadata {
+                deploy_hash: *deploy.id(),
+                responder,
+            }
+            .into()
+        })
+        .expect("no deploy with metadata returned");
+
+    assert_eq!(deploy_response.into_naive(), *deploy);
+    match metadata_response {
+        DeployMetadataExt::Metadata(_) => {
+            panic!("We didn't store any metadata but we received it in the response.")
+        }
+        DeployMetadataExt::BlockInfo(_) => {
+            panic!(
+                "We didn't store any block info in the index but we received it in the response."
+            )
+        }
+        DeployMetadataExt::Empty => { /* We didn't store execution results or block info */ }
+    }
 }
 
 #[test]
@@ -870,7 +968,12 @@ fn store_execution_results_for_two_blocks() {
     assert_eq!(first_deploy, deploy);
     let mut expected_per_block_results = HashMap::new();
     expected_per_block_results.insert(block_hash_a, first_result);
-    assert_eq!(first_metadata.execution_results, expected_per_block_results);
+    assert_eq!(
+        first_metadata,
+        DeployMetadata {
+            execution_results: expected_per_block_results.clone()
+        }
+    );
 
     // Add second result for the same deploy, different block.
     let second_result: ExecutionResult = harness.rng.gen();
@@ -885,8 +988,10 @@ fn store_execution_results_for_two_blocks() {
     assert_eq!(second_deploy, deploy);
     expected_per_block_results.insert(block_hash_b, second_result);
     assert_eq!(
-        second_metadata.execution_results,
-        expected_per_block_results
+        second_metadata,
+        DeployMetadata {
+            execution_results: expected_per_block_results
+        }
     );
 }
 
@@ -996,7 +1101,12 @@ fn store_random_execution_results() {
 
         assert_eq!(deploy_hash, deploy.id());
 
-        assert_eq!(raw_meta, &metadata.execution_results);
+        assert_eq!(
+            metadata,
+            DeployMetadata {
+                execution_results: raw_meta.clone()
+            }
+        );
     }
 }
 
@@ -1133,11 +1243,14 @@ fn persist_blocks_deploys_and_deploy_metadata_across_instantiations() {
                 get_naive_deploys(&mut harness, &mut storage, smallvec![*deploy.id()]);
             assert_eq!(actual_deploys, vec![Some(deploy.clone())]);
 
-            let (_, deploy_metadata) =
+            let (_, deploy_metadata_ext) =
                 get_naive_deploy_and_metadata(&mut harness, &mut storage, *deploy.id())
                     .expect("missing deploy we stored earlier");
 
-            let execution_results = deploy_metadata.execution_results;
+            let execution_results = match deploy_metadata_ext {
+                DeployMetadataExt::Metadata(metadata) => metadata.execution_results,
+                _ => panic!("Unexpected missing metadata."),
+            };
             assert_eq!(execution_results.len(), 1);
             assert_eq!(execution_results[block.hash()], execution_result);
 
@@ -1160,6 +1273,10 @@ fn should_hard_reset() {
 
     let mut storage = storage_fixture(&harness, verifiable_chunked_hash_activation);
 
+    let random_deploys: Vec<_> = iter::repeat_with(|| Deploy::random(&mut harness.rng))
+        .take(blocks_count)
+        .collect();
+
     // Create and store 8 blocks, 0-2 in era 0, 3-5 in era 1, and 6,7 in era 2.
     let blocks: Vec<Block> = (0..blocks_count)
         .map(|height| {
@@ -1171,6 +1288,7 @@ fn should_hard_reset() {
                 ProtocolVersion::V1_0_0,
                 is_switch,
                 verifiable_chunked_hash_activation,
+                iter::once(random_deploys.get(height).expect("should_have_deploy")),
             )
         })
         .collect();
@@ -1197,12 +1315,12 @@ fn should_hard_reset() {
     // and so on.
     let mut deploys = vec![];
     let mut execution_results = vec![];
-    for block_hash in blocks.iter().map(|block| block.hash()) {
-        let deploy = Deploy::random(&mut harness.rng);
+    for (index, block_hash) in blocks.iter().map(|block| block.hash()).enumerate() {
+        let deploy = random_deploys.get(index).expect("should have deploys");
         let execution_result: ExecutionResult = harness.rng.gen();
+        put_deploy(&mut harness, &mut storage, Box::new(deploy.clone()));
         let mut exec_results = HashMap::new();
         exec_results.insert(*deploy.id(), execution_result);
-        put_deploy(&mut harness, &mut storage, Box::new(deploy.clone()));
         put_execution_results(
             &mut harness,
             &mut storage,
@@ -1256,13 +1374,16 @@ fn should_hard_reset() {
 
         // Check execution results in deleted blocks have been removed.
         for (index, deploy) in deploys.iter().enumerate() {
-            let (_deploy, metadata) =
+            let (_, deploy_metadata_ext) =
                 get_naive_deploy_and_metadata(&mut harness, &mut storage, *deploy.id()).unwrap();
             let should_have_exec_results = index < blocks_per_era * reset_era;
-            assert_eq!(
-                should_have_exec_results,
-                !metadata.execution_results.is_empty()
-            );
+            match deploy_metadata_ext {
+                DeployMetadataExt::Metadata(_metadata) => assert!(should_have_exec_results),
+                DeployMetadataExt::BlockInfo(_block_hash_and_height) => {
+                    assert!(!should_have_exec_results)
+                }
+                DeployMetadataExt::Empty => assert!(!should_have_exec_results),
+            };
         }
     };
 
@@ -1465,6 +1586,7 @@ fn should_garbage_collect() {
                 ProtocolVersion::from_parts(1, 4, 0),
                 is_switch,
                 verifiable_chunked_hash_activation,
+                None,
             )
         })
         .collect();
@@ -1595,6 +1717,7 @@ fn can_put_and_get_blocks_v2() {
             protocol_version,
             i == num_blocks - 1,
             verifiable_chunked_hash_activation,
+            None,
         );
 
         blocks.push(block.clone());
@@ -1746,6 +1869,7 @@ fn setup_range(low: u64, high: u64) -> ComponentHarness<UnitTestEvent> {
         ProtocolVersion::V1_0_0,
         false,
         verifiable_chunked_hash_activation,
+        None,
     );
 
     let storage = storage_fixture(&harness, verifiable_chunked_hash_activation);
@@ -1759,6 +1883,7 @@ fn setup_range(low: u64, high: u64) -> ComponentHarness<UnitTestEvent> {
         ProtocolVersion::V1_0_0,
         is_switch,
         verifiable_chunked_hash_activation,
+        None,
     );
     storage.storage.write_block(&block).unwrap();
 
@@ -1959,7 +2084,15 @@ fn should_restrict_returned_blocks() {
 
     // Create the following disjoint sequences: 1-2 4-5
     [1, 2, 4, 5].iter().for_each(|height| {
-        let (block, _) = random_block_at_height(&mut harness.rng, *height, Block::random_v1);
+        let block = Block::random_with_specifics(
+            &mut harness.rng,
+            EraId::from(1),
+            *height,
+            ProtocolVersion::from_parts(1, 5, 0),
+            false,
+            verifiable_chunked_hash_activation,
+            None,
+        );
         storage.storage.write_block(&block).unwrap();
     });
     // The available range is 4-5.
@@ -2029,4 +2162,77 @@ fn should_restrict_returned_blocks() {
         .storage
         .should_return_block(6, true)
         .expect("should return block failed"));
+}
+
+#[test]
+fn should_get_block_header_by_height() {
+    let mut harness = ComponentHarness::default();
+    let mut storage = storage_fixture(&harness, EraId::from(u64::MAX));
+
+    let (block, _) = Block::random_v1(&mut harness.rng);
+    let expected_header = block.header().clone();
+    let height = block.height();
+
+    // Requesting the block header before it is in storage should return None.
+    assert!(get_block_header_by_height(&mut harness, &mut storage, height).is_none());
+
+    let was_new = put_block(&mut harness, &mut storage, Box::new(block));
+    assert!(was_new);
+
+    // Requesting the block header after it is in storage should return the block header.
+    let maybe_block_header = get_block_header_by_height(&mut harness, &mut storage, height);
+    assert!(maybe_block_header.is_some());
+    assert_eq!(expected_header, maybe_block_header.unwrap());
+}
+
+#[test]
+fn should_read_legacy_unbonding_purse() {
+    // These bytes represent the `UnbondingPurse` struct with the `new_validator` field removed
+    // and serialized with `bincode`.
+    // In theory, we can generate these bytes by serializing the `WithdrawPurse`, but at some point,
+    // these two structs may diverge and it's a safe bet to rely on the bytes
+    // that are consistent with what we keep in the current storage.
+    const LEGACY_BYTES: &str = "0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e07010000002000000000000000197f6b23e16c8532c6abc838facd5ea789be0c76b2920334039bfa8b3d368d610100000020000000000000004508a07aa941707f3eb2db94c8897a80b2c1197476b6de213ac273df7d86c4ffffffffffffffffff40feffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+
+    let decoded = base16::decode(LEGACY_BYTES).expect("decode");
+    let deserialized: UnbondingPurse = deserialize_internal(&decoded)
+        .expect("should deserialize w/o error")
+        .expect("should be Some");
+
+    // Make sure the new field is set to default.
+    assert_eq!(*deserialized.new_validator(), Option::default())
+}
+
+#[test]
+fn unbonding_purse_serialization_roundtrip() {
+    let original = UnbondingPurse::new(
+        URef::new([14; 32], AccessRights::READ_ADD_WRITE),
+        {
+            let secret_key =
+                SecretKey::ed25519_from_bytes([42; SecretKey::ED25519_LENGTH]).unwrap();
+            PublicKey::from(&secret_key)
+        },
+        {
+            let secret_key =
+                SecretKey::ed25519_from_bytes([43; SecretKey::ED25519_LENGTH]).unwrap();
+            PublicKey::from(&secret_key)
+        },
+        EraId::MAX,
+        U512::max_value() - 1,
+        Some({
+            let secret_key =
+                SecretKey::ed25519_from_bytes([44; SecretKey::ED25519_LENGTH]).unwrap();
+            PublicKey::from(&secret_key)
+        }),
+    );
+
+    let serialized = serialize_internal(&original).expect("serialization");
+    let deserialized: UnbondingPurse = deserialize_internal(&serialized)
+        .expect("should deserialize w/o error")
+        .expect("should be Some");
+
+    assert_eq!(original, deserialized);
+
+    // Explicitly assert that the `new_validator` is not `None`
+    assert!(deserialized.new_validator().is_some())
 }

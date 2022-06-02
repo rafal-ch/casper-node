@@ -41,16 +41,24 @@ function _main()
     _step_05 "6"
     _step_06 "6"
     _step_07
+    _step_08
 }
 
 # Step 01: Start network from pre-built stage.
 function _step_01()
 {
     local STAGE_ID=${1}
+    local PATH_TO_STAGE
+    local PATH_TO_PROTO1
+
+    PATH_TO_STAGE=$(get_path_to_stage "$STAGE_ID")
+    pushd "$PATH_TO_STAGE"
+    PATH_TO_PROTO1=$(ls -d */ | sort | head -n 1 | tr -d '/')
+    popd
 
     log_step_upgrades 1 "starting network from stage ($STAGE_ID)"
 
-    source "$NCTL/sh/assets/setup_from_stage.sh" stage="$STAGE_ID"
+    source "$NCTL/sh/assets/setup_from_stage.sh" stage="$STAGE_ID" chainspec_path="$PATH_TO_STAGE/$PATH_TO_PROTO1/upgrade_chainspecs/upgrade_scenario_8.chainspec.toml.in"
     source "$NCTL/sh/node/start.sh" node=all
 }
 
@@ -71,7 +79,7 @@ function _step_03()
 
     log_step_upgrades 3 "upgrading node-6 from stage ($STAGE_ID)"
 
-    source "$NCTL/sh/assets/upgrade_from_stage_single_node.sh" stage="$STAGE_ID" verbose=false node="6" era="$ACTIVATION_POINT"
+    source "$NCTL/sh/assets/upgrade_from_stage_single_node.sh" stage="$STAGE_ID" verbose=false node="6" era="$ACTIVATION_POINT" chainspec_path="$NCTL/sh/scenarios/chainspecs/upgrade_scenario_8.chainspec.toml.in"
 }
 
 # Step 04: Join passive node.
@@ -121,11 +129,23 @@ function _step_06()
     fi
 }
 
-
-# Step 07: Terminate.
+# Step 07: Run NCTL health checks
 function _step_07()
 {
-    log_step_upgrades 7 "test successful - tidying up"
+    log_step_upgrades 7 "running health checks"
+    source "$NCTL"/sh/scenarios/common/health_checks.sh \
+            errors='0' \
+            equivocators='0' \
+            doppels='0' \
+            crashes=0 \
+            restarts=0 \
+            ejections=0
+}
+
+# Step 08: Terminate.
+function _step_08()
+{
+    log_step_upgrades 8 "test successful - tidying up"
 
     source "$NCTL/sh/assets/teardown.sh"
 

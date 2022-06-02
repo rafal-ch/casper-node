@@ -18,7 +18,8 @@
 # 13. Waits for the auction delay to take effect.
 # 14. Asserts non-genesis validator is NO LONGER an active validator.
 # 15. Asserts delegatee is NO LONGER in auction info.
-# 16. Successful test cleanup.
+# 16. Run Health Checks
+# 17. Successful test cleanup.
 
 # ----------------------------------------------------------------
 # Imports.
@@ -60,18 +61,26 @@ function _main()
     _step_14
     _step_15
     _step_16
+    _step_17
 }
 
 # Step 01: Start network from pre-built stage.
 function _step_01()
 {
     local STAGE_ID=${1}
+    local PATH_TO_STAGE
+    local PATH_TO_PROTO1
+
+    PATH_TO_STAGE=$(get_path_to_stage "$STAGE_ID")
+    pushd "$PATH_TO_STAGE"
+    PATH_TO_PROTO1=$(ls -d */ | sort | head -n 1 | tr -d '/')
+    popd
 
     log_step_upgrades 1 "starting network from stage ($STAGE_ID)"
 
     source "$NCTL/sh/assets/setup_from_stage.sh" \
             stage="$STAGE_ID" \
-            chainspec_path="$NCTL/sh/scenarios/chainspecs/upgrade_scenario_3.chainspec.toml.in" \
+            chainspec_path="$PATH_TO_STAGE/$PATH_TO_PROTO1/upgrade_chainspecs/upgrade_scenario_3.chainspec.toml.in" \
             accounts_path="$NCTL/sh/scenarios/accounts_toml/upgrade_scenario_3.accounts.toml"
     source "$NCTL/sh/node/start.sh" node=all
 }
@@ -196,7 +205,7 @@ function _step_08()
     log_step_upgrades 8 "upgrading network from stage ($STAGE_ID)"
 
     log "... setting upgrade assets"
-    source "$NCTL/sh/assets/upgrade_from_stage.sh" stage="$STAGE_ID" verbose=false
+    source "$NCTL/sh/assets/upgrade_from_stage.sh" stage="$STAGE_ID" verbose=false chainspec_path="$NCTL/sh/scenarios/chainspecs/upgrade_scenario_3.chainspec.toml.in"
 
     log "... awaiting 2 eras + 1 block"
     await_n_eras '2' 'true' '5.0'
@@ -379,10 +388,24 @@ function _step_15()
     fi
 }
 
-# Step 16: Terminate.
+# Step 16: Run NCTL health checks
 function _step_16()
 {
-    log_step_upgrades 16 "test successful - tidying up"
+    # restarts=6 - Nodes that upgrade
+    log_step_upgrades 16 "running health checks"
+    source "$NCTL"/sh/scenarios/common/health_checks.sh \
+            errors='0' \
+            equivocators='0' \
+            doppels='0' \
+            crashes=0 \
+            restarts=6 \
+            ejections=0
+}
+
+# Step 17: Terminate.
+function _step_17()
+{
+    log_step_upgrades 17 "test successful - tidying up"
 
     source "$NCTL/sh/assets/teardown.sh"
 

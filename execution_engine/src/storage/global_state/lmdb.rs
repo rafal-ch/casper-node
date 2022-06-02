@@ -1,7 +1,12 @@
-use std::{collections::HashMap, ops::Deref, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::Deref,
+    sync::{Arc, RwLock},
+};
 
 use casper_hashing::{ChunkWithProof, Digest};
 use casper_types::{bytesrepr::Bytes, Key, StoredValue};
+use tracing::info;
 
 use crate::{
     shared::{additive_map::AdditiveMap, newtypes::CorrelationId, transform::Transform},
@@ -18,9 +23,10 @@ use crate::{
             TrieOrChunkId,
         },
         trie_store::{
-            lmdb::LmdbTrieStore,
+            lmdb::{LmdbTrieStore, ScratchTrieStore},
             operations::{
-                keys_with_prefix, missing_trie_keys, put_trie, read, read_with_proof, ReadResult,
+                descendant_trie_keys, keys_with_prefix, missing_trie_keys, put_trie, read,
+                read_with_proof, ReadResult,
             },
         },
     },
@@ -35,6 +41,7 @@ pub struct LmdbGlobalState {
     // TODO: make this a lazy-static
     /// Empty root hash used for a new trie.
     pub(crate) empty_root_hash: Digest,
+    digests_without_missing_descendants: RwLock<HashSet<Digest>>,
 }
 
 /// Represents a "view" of global state at a particular root hash.
@@ -75,6 +82,7 @@ impl LmdbGlobalState {
             environment,
             trie_store,
             empty_root_hash,
+            digests_without_missing_descendants: Default::default(),
         }
     }
 
@@ -94,14 +102,33 @@ impl LmdbGlobalState {
         prestate_hash: Digest,
         stored_values: HashMap<Key, StoredValue>,
     ) -> Result<Digest, error::Error> {
-        put_stored_values::<LmdbEnvironment, LmdbTrieStore, error::Error>(
-            &self.environment,
-            &self.trie_store,
+        let scratch_trie = self.get_scratch_store();
+        let new_state_root = put_stored_values::<_, _, error::Error>(
+            &scratch_trie,
+            &scratch_trie,
             correlation_id,
             prestate_hash,
             stored_values,
-        )
-        .map_err(Into::into)
+        )?;
+        scratch_trie.write_root_to_db(new_state_root)?;
+        Ok(new_state_root)
+    }
+
+    /// Gets a scratch trie store.
+    fn get_scratch_store(&self) -> ScratchTrieStore {
+        ScratchTrieStore::new(Arc::clone(&self.trie_store), Arc::clone(&self.environment))
+    }
+
+    /// Get a reference to the lmdb global state's environment.
+    #[must_use]
+    pub fn environment(&self) -> &LmdbEnvironment {
+        &self.environment
+    }
+
+    /// Get a reference to the lmdb global state's trie store.
+    #[must_use]
+    pub fn trie_store(&self) -> &LmdbTrieStore {
+        &self.trie_store
     }
 }
 
@@ -237,9 +264,9 @@ impl StateProvider for LmdbGlobalState {
             || Ok(None),
             |bytes| {
                 if bytes.len() <= ChunkWithProof::CHUNK_SIZE_BYTES {
-                    Ok(Some(TrieOrChunk::Trie(bytes.to_owned().into())))
+                    Ok(Some(TrieOrChunk::Trie(bytes)))
                 } else {
-                    let chunk_with_proof = ChunkWithProof::new(bytes, trie_index)?;
+                    let chunk_with_proof = ChunkWithProof::new(&bytes, trie_index)?;
                     Ok(Some(TrieOrChunk::ChunkWithProof(chunk_with_proof)))
                 }
             },
@@ -256,8 +283,7 @@ impl StateProvider for LmdbGlobalState {
     ) -> Result<Option<Bytes>, Self::Error> {
         let txn = self.environment.create_read_txn()?;
         let ret: Option<Bytes> =
-            Store::<Digest, Trie<Digest, StoredValue>>::get_raw(&*self.trie_store, &txn, trie_key)?
-                .map(|slice| slice.to_owned().into());
+            Store::<Digest, Trie<Digest, StoredValue>>::get_raw(&*self.trie_store, &txn, trie_key)?;
         txn.commit()?;
         Ok(ret)
     }
@@ -281,16 +307,68 @@ impl StateProvider for LmdbGlobalState {
         correlation_id: CorrelationId,
         trie_keys: Vec<Digest>,
     ) -> Result<Vec<Digest>, Self::Error> {
-        let txn = self.environment.create_read_txn()?;
-        let missing_descendants =
-            missing_trie_keys::<Key, StoredValue, lmdb::RoTransaction, LmdbTrieStore, Self::Error>(
+        let trie_count = {
+            let digests_without_missing_descendants = self
+                .digests_without_missing_descendants
+                .read()
+                .expect("digest cache read lock");
+            trie_keys
+                .iter()
+                .filter(|digest| !digests_without_missing_descendants.contains(digest))
+                .count()
+        };
+        if trie_count == 0 {
+            info!("no need to call missing_trie_keys");
+            Ok(vec![])
+        } else {
+            let txn = self.environment.create_read_txn()?;
+            let missing_descendants = missing_trie_keys::<
+                Key,
+                StoredValue,
+                lmdb::RoTransaction,
+                LmdbTrieStore,
+                Self::Error,
+            >(
                 correlation_id,
                 &txn,
                 self.trie_store.deref(),
-                trie_keys,
+                trie_keys.clone(),
+                &self
+                    .digests_without_missing_descendants
+                    .read()
+                    .expect("digest cache read lock"),
             )?;
-        txn.commit()?;
-        Ok(missing_descendants)
+            if missing_descendants.is_empty() {
+                // There were no missing descendants on `trie_keys`, let's add them *and all of
+                // their descendants* to the cache.
+
+                let mut all_descendants: HashSet<Digest> = HashSet::new();
+                all_descendants.extend(&trie_keys);
+                all_descendants.extend(descendant_trie_keys::<
+                    Key,
+                    StoredValue,
+                    lmdb::RoTransaction,
+                    LmdbTrieStore,
+                    Self::Error,
+                >(
+                    &txn,
+                    self.trie_store.deref(),
+                    trie_keys,
+                    &self
+                        .digests_without_missing_descendants
+                        .read()
+                        .expect("digest cache read lock"),
+                )?);
+
+                self.digests_without_missing_descendants
+                    .write()
+                    .expect("digest cache write lock")
+                    .extend(all_descendants.into_iter());
+            }
+            txn.commit()?;
+
+            Ok(missing_descendants)
+        }
     }
 }
 
@@ -331,7 +409,7 @@ mod tests {
     // greater than the chunk limit.
     fn create_test_pairs_with_large_data() -> [TestPair; 2] {
         let val = CLValue::from_t(
-            String::from_utf8(vec![b'a'; ChunkWithProof::CHUNK_SIZE_BYTES * 5]).unwrap(),
+            String::from_utf8(vec![b'a'; ChunkWithProof::CHUNK_SIZE_BYTES * 2]).unwrap(),
         )
         .unwrap();
         [

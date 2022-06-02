@@ -12,7 +12,10 @@ use super::{
     pending_signatures::PendingSignatures, signature::Signature, signature_cache::SignatureCache,
 };
 use crate::{
-    components::{chain_synchronizer::KeyBlockInfo, consensus},
+    components::{
+        chain_synchronizer::KeyBlockInfo,
+        consensus::{self, error::FinalitySignatureError},
+    },
     types::{ActivationPoint, Block, BlockHash, BlockSignatures, DeployHash, FinalitySignature},
 };
 
@@ -303,12 +306,14 @@ impl LinearChain {
             }
             Some(era_kb_info) => era_kb_info,
         };
-        consensus::check_sufficient_finality_signatures(
-            era_kb_info.validator_weights(),
-            self.finality_threshold_fraction,
-            signatures,
+        matches!(
+            consensus::check_sufficient_finality_signatures(
+                era_kb_info.validator_weights(),
+                self.finality_threshold_fraction,
+                signatures,
+            ),
+            Ok(()) | Err(FinalitySignatureError::TooManySignatures { .. })
         )
-        .is_ok()
     }
 
     pub(super) fn handle_finality_signature(
@@ -451,11 +456,11 @@ mod tests {
 
     use rand::Rng;
 
-    use casper_types::{EraId, PublicKey, SecretKey};
-
-    use crate::{
-        crypto::generate_ed25519_keypair, logging, testing::TestRng, types::FinalizedBlock,
+    use casper_types::{
+        crypto::generate_ed25519_keypair, testing::TestRng, EraId, PublicKey, SecretKey,
     };
+
+    use crate::{logging, types::FinalizedBlock};
 
     use super::*;
 
@@ -707,6 +712,7 @@ mod tests {
             ProtocolVersion::V1_0_0,
             false,
             verifiable_chunked_hash_activation,
+            None,
         );
         let block_hash = *block.hash();
         let block_era = block.header().era_id();
@@ -763,6 +769,7 @@ mod tests {
             ProtocolVersion::V1_0_0,
             false,
             verifiable_chunked_hash_activation,
+            None,
         ));
         let block_hash = *block.hash();
         let block_era = block.header().era_id();
@@ -834,7 +841,7 @@ mod tests {
                 BlockHash::random(&mut rng),              // parent hash
                 rng.gen::<[u8; Digest::LENGTH]>().into(), // parent seed
                 rng.gen::<[u8; Digest::LENGTH]>().into(), // state root hash
-                FinalizedBlock::random_with_specifics(&mut rng, EraId::from(1), 10, true),
+                FinalizedBlock::random_with_specifics(&mut rng, EraId::from(1), 10, true, None),
                 Some(validators.clone()),
                 protocol_version,
                 verifiable_chunked_hash_activation,
@@ -851,7 +858,7 @@ mod tests {
                 BlockHash::random(&mut rng),              // parent hash
                 rng.gen::<[u8; Digest::LENGTH]>().into(), // parent seed
                 rng.gen::<[u8; Digest::LENGTH]>().into(), // state root hash
-                FinalizedBlock::random_with_specifics(&mut rng, EraId::from(2), 20, true),
+                FinalizedBlock::random_with_specifics(&mut rng, EraId::from(2), 20, true, None),
                 Some(validators),
                 protocol_version,
                 verifiable_chunked_hash_activation,
@@ -952,7 +959,7 @@ mod tests {
                 BlockHash::random(&mut rng),              // parent hash
                 rng.gen::<[u8; Digest::LENGTH]>().into(), // parent seed
                 rng.gen::<[u8; Digest::LENGTH]>().into(), // state root hash
-                FinalizedBlock::random_with_specifics(&mut rng, EraId::from(1), 10, true),
+                FinalizedBlock::random_with_specifics(&mut rng, EraId::from(1), 10, true, None),
                 Some(validators.clone()),
                 protocol_version,
                 verifiable_chunked_hash_activation,
@@ -968,7 +975,7 @@ mod tests {
                 BlockHash::random(&mut rng),              // parent hash
                 rng.gen::<[u8; Digest::LENGTH]>().into(), // parent seed
                 rng.gen::<[u8; Digest::LENGTH]>().into(), // state root hash
-                FinalizedBlock::random_with_specifics(&mut rng, EraId::from(2), 20, true),
+                FinalizedBlock::random_with_specifics(&mut rng, EraId::from(2), 20, true, None),
                 Some(validators),
                 protocol_version,
                 verifiable_chunked_hash_activation,

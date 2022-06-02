@@ -2,18 +2,16 @@ use std::sync::Arc;
 
 use casper_execution_engine::core::engine_state::executable_deploy_item::ExecutableDeployItem;
 use casper_types::{
-    bytesrepr::Bytes, runtime_args, system::standard_payment::ARG_AMOUNT, RuntimeArgs, SecretKey,
-    U512,
+    bytesrepr::Bytes, runtime_args, system::standard_payment::ARG_AMOUNT, testing::TestRng,
+    RuntimeArgs, SecretKey, TimeDiff, U512,
 };
 use derive_more::From;
 use itertools::Itertools;
 
 use crate::{
     components::{consensus::BlockContext, fetcher::FetcherError},
-    crypto::AsymmetricKeyExt,
     reactor::{EventQueueHandle, QueueKind, Scheduler},
-    testing::TestRng,
-    types::{BlockPayload, ChainspecRawBytes, DeployWithApprovals, TimeDiff},
+    types::{BlockPayload, ChainspecRawBytes, DeployWithApprovals},
     utils::{self, Loadable},
 };
 
@@ -160,13 +158,10 @@ async fn validate_block(
     transfers: Vec<Deploy>,
 ) -> bool {
     // Assemble the block to be validated.
-    let deploys_for_block = deploys
-        .iter()
-        .map(|deploy| DeployWithApprovals::new(*deploy.id(), deploy.approvals().clone()))
-        .collect_vec();
+    let deploys_for_block = deploys.iter().map(DeployWithApprovals::from).collect_vec();
     let transfers_for_block = transfers
         .iter()
-        .map(|deploy| DeployWithApprovals::new(*deploy.id(), deploy.approvals().clone()))
+        .map(DeployWithApprovals::from)
         .collect_vec();
     let proposed_block = new_proposed_block(timestamp, deploys_for_block, transfers_for_block);
 

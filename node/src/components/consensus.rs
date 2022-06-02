@@ -31,7 +31,7 @@ use hex_fmt::HexFmt;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use casper_types::{EraId, PublicKey};
+use casper_types::{EraId, PublicKey, Timestamp};
 
 use crate::{
     components::Component,
@@ -47,7 +47,7 @@ use crate::{
     },
     protocol::Message,
     reactor::ReactorEvent,
-    types::{ActivationPoint, BlockHash, BlockHeader, BlockPayload, NodeId, Timestamp},
+    types::{ActivationPoint, BlockHash, BlockHeader, BlockPayload, NodeId},
     NodeRng,
 };
 
@@ -57,7 +57,7 @@ pub(crate) use consensus_protocol::{BlockContext, EraReport, ProposedBlock};
 pub(crate) use era_supervisor::{debug::EraDump, EraSupervisor};
 pub(crate) use protocols::highway::HighwayProtocol;
 
-pub(crate) use utils::check_sufficient_finality_signatures;
+pub(crate) use utils::{check_sufficient_finality_signatures, get_minimal_set_of_signatures};
 pub(crate) use validator_change::ValidatorChange;
 
 #[derive(DataSize, Clone, Serialize, Deserialize)]

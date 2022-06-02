@@ -31,7 +31,7 @@ use casper_execution_engine::{
 use casper_hashing::Digest;
 use casper_types::{
     bytesrepr::Bytes, system::auction::EraValidators, EraId, ExecutionResult, Key, ProtocolVersion,
-    PublicKey, Transfer, URef,
+    PublicKey, TimeDiff, Transfer, URef,
 };
 
 use crate::{
@@ -45,13 +45,13 @@ use crate::{
         deploy_acceptor::Error,
         fetcher::FetchResult,
     },
-    effect::Responder,
+    effect::{AutoClosingResponder, Responder},
     rpcs::{chain::BlockIdentifier, docs::OpenRpcSchema},
     types::{
-        AvailableBlockRange, Block, BlockHash, BlockHeader, BlockHeaderWithMetadata, BlockPayload,
-        BlockSignatures, BlockWithMetadata, Chainspec, ChainspecInfo, ChainspecRawBytes, Deploy,
-        DeployHash, DeployMetadata, DeployWithFinalizedApprovals, FinalizedApprovals,
-        FinalizedBlock, Item, NodeId, StatusFeed, TimeDiff,
+        AvailableBlockRange, Block, BlockAndDeploys, BlockHash, BlockHeader,
+        BlockHeaderWithMetadata, BlockPayload, BlockSignatures, BlockWithMetadata, Chainspec,
+        ChainspecInfo, ChainspecRawBytes, Deploy, DeployHash, DeployMetadataExt,
+        DeployWithFinalizedApprovals, FinalizedApprovals, FinalizedBlock, Item, NodeId, StatusFeed,
     },
     utils::{DisplayIter, Source},
 };
@@ -94,9 +94,12 @@ pub(crate) enum NetworkRequest<P> {
         dest: Box<NodeId>,
         /// Message payload.
         payload: Box<P>,
-        /// Responder to be called when the message is queued.
+        /// If `true`, the responder will be called early after the message has been queued, not
+        /// waiting until it has passed to the kernel.
+        respond_after_queueing: bool,
+        /// Responder to be called when the message has been *buffered for sending*.
         #[serde(skip_serializing)]
-        responder: Responder<()>,
+        auto_closing_responder: AutoClosingResponder<()>,
     },
     /// Send a message on the network to all peers.
     /// Note: This request is deprecated and should be phased out, as not every network
@@ -106,7 +109,7 @@ pub(crate) enum NetworkRequest<P> {
         payload: Box<P>,
         /// Responder to be called when all messages are queued.
         #[serde(skip_serializing)]
-        responder: Responder<()>,
+        auto_closing_responder: AutoClosingResponder<()>,
     },
     /// Gossip a message to a random subset of peers.
     Gossip {
@@ -119,7 +122,7 @@ pub(crate) enum NetworkRequest<P> {
         exclude: HashSet<NodeId>,
         /// Responder to be called when all messages are queued.
         #[serde(skip_serializing)]
-        responder: Responder<HashSet<NodeId>>,
+        auto_closing_responder: AutoClosingResponder<HashSet<NodeId>>,
     },
 }
 
@@ -135,26 +138,31 @@ impl<P> NetworkRequest<P> {
             NetworkRequest::SendMessage {
                 dest,
                 payload,
-                responder,
+                respond_after_queueing,
+                auto_closing_responder,
             } => NetworkRequest::SendMessage {
                 dest,
                 payload: Box::new(wrap_payload(*payload)),
-                responder,
+                respond_after_queueing,
+                auto_closing_responder,
             },
-            NetworkRequest::Broadcast { payload, responder } => NetworkRequest::Broadcast {
+            NetworkRequest::Broadcast {
+                payload,
+                auto_closing_responder,
+            } => NetworkRequest::Broadcast {
                 payload: Box::new(wrap_payload(*payload)),
-                responder,
+                auto_closing_responder,
             },
             NetworkRequest::Gossip {
                 payload,
                 count,
                 exclude,
-                responder,
+                auto_closing_responder,
             } => NetworkRequest::Gossip {
                 payload: Box::new(wrap_payload(*payload)),
                 count,
                 exclude,
-                responder,
+                auto_closing_responder,
             },
         }
     }
@@ -181,14 +189,19 @@ where
 #[derive(Debug)]
 pub(crate) enum NetworkInfoRequest {
     /// Get incoming and outgoing peers.
-    GetPeers {
+    Peers {
         /// Responder to be called with all connected peers.
         /// Responds with a map from [NodeId]s to a socket address, represented as a string.
         responder: Responder<BTreeMap<NodeId, String>>,
     },
     /// Get the peers in random order.
-    GetFullyConnectedPeers {
+    FullyConnectedPeers {
         /// Responder to be called with all connected in random order peers.
+        responder: Responder<Vec<NodeId>>,
+    },
+    /// Get only non-joiner peers in random order.
+    FullyConnectedNonJoinerPeers {
+        /// Responder to be called with all connected non-joiner peers in random order.
         responder: Responder<Vec<NodeId>>,
     },
 }
@@ -196,11 +209,14 @@ pub(crate) enum NetworkInfoRequest {
 impl Display for NetworkInfoRequest {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            NetworkInfoRequest::GetPeers { responder: _ } => {
+            NetworkInfoRequest::Peers { responder: _ } => {
                 write!(formatter, "get peers-to-socket-address map")
             }
-            NetworkInfoRequest::GetFullyConnectedPeers { responder: _ } => {
+            NetworkInfoRequest::FullyConnectedPeers { responder: _ } => {
                 write!(formatter, "get fully connected peers")
+            }
+            NetworkInfoRequest::FullyConnectedNonJoinerPeers { responder: _ } => {
+                write!(formatter, "get fully connected non-joiner peers")
             }
         }
     }
@@ -247,6 +263,13 @@ pub(crate) enum StorageRequest {
         /// attempt or false if it was previously stored.
         responder: Responder<bool>,
     },
+    /// Store given block and its deploys.
+    PutBlockAndDeploys {
+        /// Block to be stored.
+        block: Box<BlockAndDeploys>,
+        /// Responder to call on success.  Failure is a fatal error.
+        responder: Responder<()>,
+    },
     /// Retrieve block with given hash.
     GetBlock {
         /// Hash of block to be retrieved.
@@ -254,6 +277,14 @@ pub(crate) enum StorageRequest {
         /// Responder to call with the result.  Returns `None` is the block doesn't exist in local
         /// storage.
         responder: Responder<Option<Block>>,
+    },
+    /// Retrieve block and deploys with given hash.
+    GetBlockAndDeploys {
+        /// Hash of block to be retrieved.
+        block_hash: BlockHash,
+        /// Responder to call with the result.  Returns `None` is the block doesn't exist in local
+        /// storage.
+        responder: Responder<Option<BlockAndDeploys>>,
     },
     /// Retrieve highest block.
     GetHighestBlock {
@@ -283,6 +314,16 @@ pub(crate) enum StorageRequest {
     GetBlockHeader {
         /// Hash of block to get header of.
         block_hash: BlockHash,
+        /// Flag indicating whether storage should check the block availability before trying to
+        /// retrieve it.
+        only_from_available_block_range: bool,
+        /// Responder to call with the result.  Returns `None` is the block header doesn't exist in
+        /// local storage.
+        responder: Responder<Option<BlockHeader>>,
+    },
+    GetBlockHeaderByHeight {
+        /// Height of block to get header of.
+        block_height: u64,
         /// Flag indicating whether storage should check the block availability before trying to
         /// retrieve it.
         only_from_available_block_range: bool,
@@ -364,7 +405,7 @@ pub(crate) enum StorageRequest {
         /// Hash of deploy to be retrieved.
         deploy_hash: DeployHash,
         /// Responder to call with the results.
-        responder: Responder<Option<(DeployWithFinalizedApprovals, DeployMetadata)>>,
+        responder: Responder<Option<(DeployWithFinalizedApprovals, DeployMetadataExt)>>,
     },
     /// Retrieve block and its metadata by its hash.
     GetBlockAndMetadataByHash {
@@ -446,7 +487,20 @@ impl Display for StorageRequest {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
             StorageRequest::PutBlock { block, .. } => write!(formatter, "put {}", block),
+            StorageRequest::PutBlockAndDeploys {
+                block: block_deploys,
+                ..
+            } => {
+                write!(
+                    formatter,
+                    "put block and deploys {}",
+                    block_deploys.block.hash()
+                )
+            }
             StorageRequest::GetBlock { block_hash, .. } => write!(formatter, "get {}", block_hash),
+            StorageRequest::GetBlockAndDeploys { block_hash, .. } => {
+                write!(formatter, "get block and deploys {}", block_hash)
+            }
             StorageRequest::GetHighestBlock { .. } => write!(formatter, "get highest block"),
             StorageRequest::GetHighestBlockHeader { .. } => {
                 write!(formatter, "get highest block header")
@@ -459,6 +513,9 @@ impl Display for StorageRequest {
             }
             StorageRequest::GetBlockHeader { block_hash, .. } => {
                 write!(formatter, "get {}", block_hash)
+            }
+            StorageRequest::GetBlockHeaderByHeight { block_height, .. } => {
+                write!(formatter, "get header for height {}", block_height)
             }
             StorageRequest::CheckBlockHeaderExistence { block_height, .. } => {
                 write!(formatter, "check existence {}", block_height)
@@ -709,7 +766,7 @@ pub(crate) enum RpcRequest {
         /// Whether to return finalized approvals.
         finalized_approvals: bool,
         /// Responder to call with the result.
-        responder: Responder<Option<(Deploy, DeployMetadata)>>,
+        responder: Responder<Option<(Deploy, DeployMetadataExt)>>,
     },
     /// Return the connected peers.
     GetPeers {
