@@ -1,3 +1,4 @@
+mod block_signatures_collector;
 mod config;
 mod error;
 mod event;

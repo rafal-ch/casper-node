@@ -14,7 +14,6 @@ use futures::{
     stream::{futures_unordered::FuturesUnordered, StreamExt},
     TryStreamExt,
 };
-use num::rational::Ratio;
 use prometheus::IntGauge;
 use quanta::Instant;
 use tokio::sync::Semaphore;
@@ -26,11 +25,11 @@ use casper_types::{
     bytesrepr::Bytes, EraId, ProtocolVersion, PublicKey, TimeDiff, Timestamp, U512,
 };
 
-use super::{metrics::Metrics, Config};
+use super::{block_signatures_collector::BlockSignaturesCollector, metrics::Metrics, Config};
 use crate::{
     components::{
         chain_synchronizer::error::{Error, FetchBlockHeadersBatchError, FetchTrieError},
-        consensus::{self, error::FinalitySignatureError},
+        consensus::{self},
         contract_runtime::{BlockAndExecutionEffects, ExecutionPreState},
         fetcher::{FetchResult, FetchedData, FetcherError},
     },
@@ -1311,58 +1310,6 @@ async fn fetch_block_worker(
     }
 }
 
-struct BlockSignaturesCollector(Option<BlockSignatures>);
-
-impl BlockSignaturesCollector {
-    fn new() -> Self {
-        Self(None)
-    }
-
-    fn add(&mut self, signatures: BlockSignatures) {
-        match &mut self.0 {
-            None => {
-                self.0 = Some(signatures);
-            }
-            Some(old_sigs) => {
-                for (pub_key, signature) in signatures.proofs {
-                    old_sigs.insert_proof(pub_key, signature);
-                }
-            }
-        }
-    }
-
-    fn check_if_sufficient(
-        &self,
-        validator_weights: &BTreeMap<PublicKey, U512>,
-        finality_threshold_fraction: Ratio<u64>,
-    ) -> bool {
-        self.0.as_ref().map_or(false, |sigs| {
-            are_signatures_sufficient_for_sync_to_genesis(
-                consensus::check_sufficient_finality_signatures(
-                    validator_weights,
-                    finality_threshold_fraction,
-                    sigs,
-                ),
-            )
-        })
-    }
-
-    fn into_inner(self) -> Option<BlockSignatures> {
-        self.0
-    }
-}
-
-// Returns true if the output from consensus can be interpreted
-// as sufficient finality signatures for the sync to genesis process.
-fn are_signatures_sufficient_for_sync_to_genesis(
-    consensus_verdict: Result<(), FinalitySignatureError>,
-) -> bool {
-    match consensus_verdict {
-        Ok(_) | Err(FinalitySignatureError::TooManySignatures { .. }) => true,
-        Err(_) => false,
-    }
-}
-
 // Fetches the finality signatures from the given peer. In case of timeout, it'll
 // retry up to `retries` times. Other errors interrupt the process immediately.
 async fn fetch_finality_signatures_with_retry(
@@ -1476,10 +1423,11 @@ async fn fetch_finality_signatures_by_block_header(
             // Try with next peer.
             continue;
         }
-        sig_collector.add(signatures);
 
-        if sig_collector
-            .check_if_sufficient(validator_weights, ctx.config.finality_threshold_fraction())
+        let got_new_signatures = sig_collector.add(signatures);
+        if got_new_signatures
+            && sig_collector
+                .check_if_sufficient(validator_weights, ctx.config.finality_threshold_fraction())
         {
             info!(
                 ?block_header_hash,
@@ -2153,55 +2101,5 @@ mod tests {
             EraId::from(2),
             get_era_id_for_validators_retrieval(&EraId::from(2), Some(EraId::from(2)))
         );
-    }
-
-    #[test]
-    fn validates_signatures_sufficiency_for_sync_to_genesis() {
-        let consensus_verdict = Ok(());
-        assert!(are_signatures_sufficient_for_sync_to_genesis(
-            consensus_verdict
-        ));
-
-        let mut rng = TestRng::new();
-        let consensus_verdict = Err(FinalitySignatureError::TooManySignatures {
-            trusted_validator_weights: BTreeMap::new(),
-            block_signatures: Box::new(BlockSignatures::new(
-                BlockHash::random(&mut rng),
-                EraId::from(0),
-            )),
-            signature_weight: Box::new(U512::from(0u16)),
-            weight_minus_minimum: Box::new(U512::from(0u16)),
-            total_validator_weight: Box::new(U512::from(0u16)),
-            finality_threshold_fraction: Ratio::new_raw(1, 2),
-        });
-        assert!(are_signatures_sufficient_for_sync_to_genesis(
-            consensus_verdict
-        ));
-
-        let consensus_verdict = Err(FinalitySignatureError::InsufficientWeightForFinality {
-            trusted_validator_weights: BTreeMap::new(),
-            block_signatures: Box::new(BlockSignatures::new(
-                BlockHash::random(&mut rng),
-                EraId::from(0),
-            )),
-            signature_weight: Box::new(U512::from(0u16)),
-            total_validator_weight: Box::new(U512::from(0u16)),
-            finality_threshold_fraction: Ratio::new_raw(1, 2),
-        });
-        assert!(!are_signatures_sufficient_for_sync_to_genesis(
-            consensus_verdict
-        ));
-
-        let consensus_verdict = Err(FinalitySignatureError::BogusValidator {
-            trusted_validator_weights: BTreeMap::new(),
-            block_signatures: Box::new(BlockSignatures::new(
-                BlockHash::random(&mut rng),
-                EraId::from(0),
-            )),
-            bogus_validator_public_key: Box::new(PublicKey::random_ed25519(&mut rng)),
-        });
-        assert!(!are_signatures_sufficient_for_sync_to_genesis(
-            consensus_verdict
-        ));
     }
 }
