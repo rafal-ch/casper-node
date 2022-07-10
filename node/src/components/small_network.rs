@@ -47,7 +47,10 @@ use std::{
     io,
     net::{SocketAddr, TcpListener},
     result,
-    sync::{Arc, Weak},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Weak,
+    },
     time::{Duration, Instant},
 };
 
@@ -97,7 +100,9 @@ use self::{
 use crate::{
     components::{consensus, Component},
     effect::{
-        announcements::{BlocklistAnnouncement, ContractRuntimeAnnouncement},
+        announcements::{
+            BlocklistAnnouncement, ChainSynchronizerAnnouncement, ContractRuntimeAnnouncement,
+        },
         requests::{BeginGossipRequest, NetworkInfoRequest, NetworkRequest, StorageRequest},
         AutoClosingResponder, EffectBuilder, EffectExt, Effects,
     },
@@ -204,7 +209,7 @@ where
         registry: &Registry,
         small_network_identity: SmallNetworkIdentity,
         chain_info_source: C,
-        is_joiner: bool,
+        _is_joiner: bool,
     ) -> Result<(SmallNetwork<REv, P>, Effects<Event<P>>)> {
         let mut known_addresses = HashSet::new();
         for address in &cfg.known_addresses {
@@ -292,6 +297,7 @@ where
         } else {
             cfg.max_in_flight_demands as usize
         };
+        info!("creating NetworkContext with joining status `true`");
         let context = Arc::new(NetworkContext {
             event_queue,
             our_id: NodeId::from(&small_network_identity),
@@ -308,7 +314,7 @@ where
             tarpit_duration: cfg.tarpit_duration,
             tarpit_chance: cfg.tarpit_chance,
             max_in_flight_demands: demand_max,
-            is_joiner,
+            is_joiner: AtomicBool::new(true), // We always start with syncing status set to `true`.
         });
 
         // Run the server task.
@@ -420,6 +426,12 @@ where
     ) {
         // Try to send the message.
         if let Some(connection) = self.outgoing_manager.get_route(dest) {
+            if msg.payload_is_unsafe_for_joiners() && self.joining_nodes.contains(&dest) {
+                // We should never attempt to send an unsafe message to a peer that we know is still
+                // syncing. Since "unsafe" does usually not mean immediately catastrophic, we
+                // attempt to carry on, but warn loudly.
+                error!(kind=%msg.classify(), node_id=%dest, "sending unsafe message to syncing node");
+            }
             if let Err(msg) = connection.sender.send((msg, opt_responder)) {
                 // We lost the connection, but that fact has not reached us yet.
                 warn!(our_id=%self.context.our_id, %dest, ?msg, "dropped outgoing message, lost connection");
@@ -739,14 +751,17 @@ where
         for request in requests.into_iter() {
             trace!(%request, "processing dial request");
             match request {
-                DialRequest::Dial { addr, span } => effects.extend(
-                    tasks::connect_outgoing(self.context.clone(), addr)
-                        .instrument(span.clone())
-                        .event(|outgoing| Event::OutgoingConnection {
-                            outgoing: Box::new(outgoing),
-                            span,
-                        }),
-                ),
+                DialRequest::Dial { addr, span } => {
+                    info!(joining = ?self.context.is_joiner, "connecting");
+                    effects.extend(
+                        tasks::connect_outgoing(self.context.clone(), addr)
+                            .instrument(span.clone())
+                            .event(|outgoing| Event::OutgoingConnection {
+                                outgoing: Box::new(outgoing),
+                                span,
+                            }),
+                    )
+                }
                 DialRequest::Disconnect { handle: _, span } => {
                     // Dropping the `handle` is enough to signal the connection to shutdown.
                     span.in_scope(|| {
@@ -824,6 +839,14 @@ where
         ret
     }
 
+    /// Disconnects all incoming connections.
+    fn disconnect_incoming_connections(&mut self) {
+        info!("disconnecting incoming connections");
+        let (shutdown_sender, shutdown_receiver) = watch::channel(());
+        self.shutdown_sender = Some(shutdown_sender);
+        self.shutdown_receiver = shutdown_receiver;
+    }
+
     /// Returns the node id of this network node.
     #[cfg(test)]
     pub(crate) fn node_id(&self) -> NodeId {
@@ -878,6 +901,12 @@ where
         event: Self::Event,
     ) -> Effects<Self::Event> {
         match event {
+            Event::ChainSynchronizerAnnouncement(ChainSynchronizerAnnouncement::SyncFinished) => {
+                info!("node has finished syncing, setting joining status to `false`");
+                self.context.is_joiner.store(false, Ordering::SeqCst);
+                self.disconnect_incoming_connections();
+                Effects::new()
+            }
             Event::IncomingConnection { incoming, span } => {
                 self.handle_incoming_connection(incoming, span)
             }

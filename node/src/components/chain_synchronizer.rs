@@ -122,7 +122,10 @@ impl ChainSynchronizer<ParticipatingEvent> {
 
         // If we're not configured to sync-to-genesis, return without doing anything.
         if !synchronizer.config.sync_to_genesis() {
-            return Ok((synchronizer, Effects::new()));
+            return Ok((
+                synchronizer,
+                effect_builder.announce_finished_syncing().ignore(),
+            ));
         }
 
         let effects = operations::run_sync_to_genesis_task(

@@ -112,7 +112,7 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize, Serializer};
 use smallvec::{smallvec, SmallVec};
 use tokio::{sync::Semaphore, time};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 use casper_execution_engine::{
     core::engine_state::{
@@ -154,10 +154,10 @@ use crate::{
     utils::{SharedFlag, Source},
 };
 use announcements::{
-    BlockProposerAnnouncement, BlocklistAnnouncement, ChainspecLoaderAnnouncement,
-    ConsensusAnnouncement, ContractRuntimeAnnouncement, ControlAnnouncement,
-    DeployAcceptorAnnouncement, GossiperAnnouncement, LinearChainAnnouncement, QueueDumpFormat,
-    RpcServerAnnouncement,
+    BlockProposerAnnouncement, BlocklistAnnouncement, ChainSynchronizerAnnouncement,
+    ChainspecLoaderAnnouncement, ConsensusAnnouncement, ContractRuntimeAnnouncement,
+    ControlAnnouncement, DeployAcceptorAnnouncement, GossiperAnnouncement, LinearChainAnnouncement,
+    QueueDumpFormat, RpcServerAnnouncement,
 };
 use diagnostics_port::DumpConsensusStateRequest;
 use requests::{
@@ -775,6 +775,20 @@ impl<REv> EffectBuilder<REv> {
             QueueKind::Regular,
         )
         .await
+    }
+
+    /// Announce that the sync process has finished.
+    pub(crate) async fn announce_finished_syncing(self)
+    where
+        REv: From<ChainSynchronizerAnnouncement>,
+    {
+        info!("announcing chain sync finished");
+        self.event_queue
+            .schedule(
+                ChainSynchronizerAnnouncement::SyncFinished,
+                QueueKind::Network,
+            )
+            .await
     }
 
     /// Announces which deploys have expired.

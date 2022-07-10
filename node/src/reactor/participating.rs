@@ -48,10 +48,10 @@ use crate::{
     contract_runtime,
     effect::{
         announcements::{
-            BlockProposerAnnouncement, BlocklistAnnouncement, ChainspecLoaderAnnouncement,
-            ConsensusAnnouncement, ContractRuntimeAnnouncement, ControlAnnouncement,
-            DeployAcceptorAnnouncement, GossiperAnnouncement, LinearChainAnnouncement,
-            RpcServerAnnouncement,
+            BlockProposerAnnouncement, BlocklistAnnouncement, ChainSynchronizerAnnouncement,
+            ChainspecLoaderAnnouncement, ConsensusAnnouncement, ContractRuntimeAnnouncement,
+            ControlAnnouncement, DeployAcceptorAnnouncement, GossiperAnnouncement,
+            LinearChainAnnouncement, RpcServerAnnouncement,
         },
         diagnostics_port::DumpConsensusStateRequest,
         incoming::{
@@ -196,6 +196,8 @@ pub(crate) enum ParticipatingEvent {
 
     // Announcements
     #[from]
+    ChainSynchronizerAnnouncement(#[serde(skip_serializing)] ChainSynchronizerAnnouncement),
+    #[from]
     ControlAnnouncement(ControlAnnouncement),
     #[from]
     RpcServerAnnouncement(#[serde(skip_serializing)] RpcServerAnnouncement),
@@ -333,6 +335,7 @@ impl ReactorEvent for ParticipatingEvent {
             ParticipatingEvent::TrieResponseIncoming(_) => "TrieResponseIncoming",
             ParticipatingEvent::FinalitySignatureIncoming(_) => "FinalitySignatureIncoming",
             ParticipatingEvent::ContractRuntime(_) => "ContractRuntime",
+            ParticipatingEvent::ChainSynchronizerAnnouncement(_) => "ChainSynchronizerAnnouncement",
         }
     }
 }
@@ -509,6 +512,9 @@ impl Display for ParticipatingEvent {
             }
             ParticipatingEvent::BlocklistAnnouncement(ann) => {
                 write!(f, "blocklist announcement: {}", ann)
+            }
+            ParticipatingEvent::ChainSynchronizerAnnouncement(ann) => {
+                write!(f, "chain synchronizer announcement: {}", ann)
             }
             ParticipatingEvent::ConsensusMessageIncoming(inner) => Display::fmt(inner, f),
             ParticipatingEvent::DeployGossiperIncoming(inner) => Display::fmt(inner, f),
@@ -1140,6 +1146,17 @@ impl reactor::Reactor for Reactor {
             ),
 
             // Announcements:
+            ParticipatingEvent::ChainSynchronizerAnnouncement(
+                ChainSynchronizerAnnouncement::SyncFinished,
+            ) => self.dispatch_event(
+                effect_builder,
+                rng,
+                ParticipatingEvent::SmallNetwork(
+                    small_network::Event::ChainSynchronizerAnnouncement(
+                        ChainSynchronizerAnnouncement::SyncFinished,
+                    ),
+                ),
+            ),
             ParticipatingEvent::ControlAnnouncement(ctrl_ann) => {
                 unreachable!("unhandled control announcement: {}", ctrl_ann)
             }

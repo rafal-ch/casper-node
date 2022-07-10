@@ -38,7 +38,7 @@ use crate::{
         fetcher::{FetchResult, FetchedData, FetcherError},
     },
     effect::{
-        announcements::BlocklistAnnouncement,
+        announcements::{BlocklistAnnouncement, ChainSynchronizerAnnouncement},
         requests::{
             ContractRuntimeRequest, FetcherRequest, MarkBlockCompletedRequest, NetworkInfoRequest,
         },
@@ -1277,6 +1277,7 @@ where
         + From<FetcherRequest<TrieOrChunk>>
         + From<BlocklistAnnouncement>
         + From<MarkBlockCompletedRequest>
+        + From<ChainSynchronizerAnnouncement>
         + Send,
 {
     let _metric = ScopeTimer::new(&ctx.metrics.chain_sync_to_genesis_total_duration_seconds);
@@ -1292,6 +1293,8 @@ where
     sync_deploys_and_transfers_and_state(&trusted_block, ctx).await?;
 
     fetch_to_genesis(&trusted_block, ctx).await?;
+
+    ctx.effect_builder.announce_finished_syncing().await;
 
     info!("finished synchronization to genesis");
 
@@ -2001,6 +2004,7 @@ where
         + From<FetcherRequest<BlockSignatures>>
         + From<BlocklistAnnouncement>
         + From<MarkBlockCompletedRequest>
+        + From<ChainSynchronizerAnnouncement>
         + Send,
 {
     info!("starting chain sync to genesis");
