@@ -348,13 +348,16 @@ impl Display for ContractRuntimeAnnouncement {
 }
 
 /// A chain synchronizer announcement.
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub(crate) enum ChainSynchronizerAnnouncement {
     /// The node has finished the synchronization it was doing (fast-sync or sync-to-genesis,
     /// depending on config) and may now accept requests that are unsafe for nodes that are
     /// synchronizing. Once this message is received, the only way for the peer to signal it's in
     /// the syncing process is to reconnect.
     SyncFinished,
+    /// Node has fetched all information about block of this height..
+    BlockCompleted(u64),
+    BlockDestinationHeight(u64),
 }
 
 impl Display for ChainSynchronizerAnnouncement {
@@ -362,6 +365,12 @@ impl Display for ChainSynchronizerAnnouncement {
         match self {
             ChainSynchronizerAnnouncement::SyncFinished => {
                 write!(f, "synchronization finished")
+            }
+            ChainSynchronizerAnnouncement::BlockCompleted(height) => {
+                write!(f, "got full block at height {}", height)
+            }
+            ChainSynchronizerAnnouncement::BlockDestinationHeight(destination_height) => {
+                write!(f, "got block destination height {}", destination_height)
             }
         }
     }

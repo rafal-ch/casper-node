@@ -3,6 +3,7 @@ use std::{
     fmt::{self, Display, Formatter},
 };
 
+use derive_more::From;
 use serde::Serialize;
 
 use casper_execution_engine::core::engine_state::{self, genesis::GenesisSuccess, UpgradeSuccess};
@@ -11,10 +12,11 @@ use casper_types::PublicKey;
 use super::{Error, FastSyncOutcome};
 use crate::{
     contract_runtime::{BlockAndExecutionEffects, BlockExecutionError},
+    effect::announcements::ChainSynchronizerAnnouncement,
     types::BlockHeader,
 };
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, From, Serialize)]
 #[allow(clippy::enum_variant_names)]
 pub(crate) enum Event {
     /// The result of running the fast sync task.
@@ -42,6 +44,8 @@ pub(crate) enum Event {
         validators_to_sign_immediate_switch_block: HashSet<PublicKey>,
         result: Result<FastSyncOutcome, Error>,
     },
+    #[from]
+    ChainSynchronizer(ChainSynchronizerAnnouncement),
 }
 
 impl Display for Event {
@@ -72,6 +76,9 @@ impl Display for Event {
                     "fast sync after emergency upgrade result: {:?}",
                     fast_sync_result
                 )
+            }
+            Event::ChainSynchronizer(ann) => {
+                write!(formatter, "chain synchronizer announcement: {}", ann)
             }
         }
     }

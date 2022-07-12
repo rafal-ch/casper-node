@@ -1415,7 +1415,8 @@ where
         + From<NetworkInfoRequest>
         + From<ContractRuntimeRequest>
         + From<BlocklistAnnouncement>
-        + From<MarkBlockCompletedRequest>,
+        + From<MarkBlockCompletedRequest>
+        + From<ChainSynchronizerAnnouncement>,
 {
     let _metric = ScopeTimer::new(&ctx.metrics.chain_sync_fetch_forward_duration_seconds);
     info!("syncing blocks and deploys and state since Genesis");
@@ -1431,6 +1432,10 @@ where
     // choose to "re-sync" from Genesis, even if it means we will go through thousands of blocks
     // that we already have. Hopefully, local checks will be fast enough.
     let latest_height_requested: Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
+
+    ctx.effect_builder
+        .announce_destination_sync_to_genesis_block_height(ctx.trusted_block_header().height())
+        .await;
 
     let mut workers: FuturesUnordered<_> = (0..ctx.config.max_parallel_block_fetches())
         .map(|worker_id| fetch_block_worker(worker_id, latest_height_requested.clone(), ctx))
@@ -1457,9 +1462,11 @@ where
         + From<NetworkInfoRequest>
         + From<ContractRuntimeRequest>
         + From<BlocklistAnnouncement>
-        + From<MarkBlockCompletedRequest>,
+        + From<MarkBlockCompletedRequest>
+        + From<ChainSynchronizerAnnouncement>,
 {
     let trusted_block_height = ctx.trusted_block_header().height();
+
     loop {
         let next_block_height = latest_height_requested.fetch_add(1, Ordering::SeqCst);
         if next_block_height >= trusted_block_height {
@@ -1496,7 +1503,7 @@ where
                     return Err(error);
                 }
                 ctx.effect_builder
-                    .mark_block_completed(fetched_block.block.height())
+                    .announce_block_completed(fetched_block.block.height())
                     .await;
                 ctx.metrics.chain_sync_blocks_synced.inc();
             }

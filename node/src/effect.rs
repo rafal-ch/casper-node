@@ -1677,6 +1677,35 @@ impl<REv> EffectBuilder<REv> {
             .await
     }
 
+    /// Announce that the sync process has finished.
+    pub(crate) async fn announce_block_completed(self, height: u64)
+    where
+        REv: From<ChainSynchronizerAnnouncement>,
+    {
+        error!("XXXXX - announcing block completed");
+        self.event_queue
+            .schedule(
+                ChainSynchronizerAnnouncement::BlockCompleted(height),
+                QueueKind::Network,
+            )
+            .await
+    }
+
+    pub(crate) async fn announce_destination_sync_to_genesis_block_height(
+        self,
+        destination_height: u64,
+    ) where
+        REv: From<ChainSynchronizerAnnouncement>,
+    {
+        error!("XXXXX - announcing block destination");
+        self.event_queue
+            .schedule(
+                ChainSynchronizerAnnouncement::BlockDestinationHeight(destination_height),
+                QueueKind::Network,
+            )
+            .await
+    }
+
     /// The linear chain has stored a newly-created block.
     pub(crate) async fn announce_block_added(self, block: Box<Block>)
     where

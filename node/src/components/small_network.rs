@@ -1109,6 +1109,12 @@ where
                 self.close_incoming_connections();
                 Effects::new()
             }
+            Event::ChainSynchronizerAnnouncement(
+                ChainSynchronizerAnnouncement::BlockCompleted(_),
+            ) => Effects::new(),
+            Event::ChainSynchronizerAnnouncement(
+                ChainSynchronizerAnnouncement::BlockDestinationHeight(_),
+            ) => Effects::new(),
         }
     }
 }

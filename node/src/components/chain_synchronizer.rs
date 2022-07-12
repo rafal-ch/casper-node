@@ -23,7 +23,9 @@ use crate::{
         Component,
     },
     effect::{
-        announcements::{BlocklistAnnouncement, ControlAnnouncement},
+        announcements::{
+            BlocklistAnnouncement, ChainSynchronizerAnnouncement, ControlAnnouncement,
+        },
         requests::{
             ChainspecLoaderRequest, ContractRuntimeRequest, FetcherRequest,
             MarkBlockCompletedRequest, NetworkInfoRequest,
@@ -499,6 +501,14 @@ where
         Effects::new()
     }
 
+    fn handle_block_completed(
+        &mut self,
+        effect_builder: EffectBuilder<REv>,
+        height: u64,
+    ) -> Effects<Event> {
+        effect_builder.mark_block_completed(height).ignore()
+    }
+
     fn handle_fast_sync_after_emergency_upgrade_result(
         &mut self,
         effect_builder: EffectBuilder<REv>,
@@ -609,6 +619,14 @@ where
                 validators_to_sign_immediate_switch_block,
                 result,
             ),
+            Event::ChainSynchronizer(ChainSynchronizerAnnouncement::BlockCompleted(height)) => {
+                error!("XXXXX - must be in logs");
+                self.handle_block_completed(effect_builder, height)
+            }
+            Event::ChainSynchronizer(ChainSynchronizerAnnouncement::SyncFinished) => Effects::new(),
+            Event::ChainSynchronizer(ChainSynchronizerAnnouncement::BlockDestinationHeight(_)) => {
+                Effects::new()
+            }
         }
     }
 }

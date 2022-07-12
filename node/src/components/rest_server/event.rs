@@ -6,7 +6,9 @@ use std::{
 use derive_more::From;
 use static_assertions::const_assert;
 
-use crate::effect::{requests::RestRequest, Responder};
+use crate::effect::{
+    announcements::ChainSynchronizerAnnouncement, requests::RestRequest, Responder,
+};
 
 const _REST_EVENT_SIZE: usize = mem::size_of::<Event>();
 const_assert!(_REST_EVENT_SIZE < 89);
@@ -19,6 +21,8 @@ pub(crate) enum Event {
         text: Option<String>,
         main_responder: Responder<Option<String>>,
     },
+    #[from]
+    ChainSynchronizer(ChainSynchronizerAnnouncement),
 }
 
 impl Display for Event {
@@ -29,6 +33,7 @@ impl Display for Event {
                 Some(txt) => write!(formatter, "get metrics ({} bytes)", txt.len()),
                 None => write!(formatter, "get metrics (failed)"),
             },
+            Event::ChainSynchronizer(ann) => write!(formatter, "{}", ann),
         }
     }
 }

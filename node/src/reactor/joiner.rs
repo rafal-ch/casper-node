@@ -563,11 +563,7 @@ impl reactor::Reactor for Reactor {
             .protocol_config
             .verifiable_chunked_hash_activation;
         let protocol_version = &chainspec_loader.chainspec().protocol_config.version;
-        let node_state = if config.node.sync_to_genesis {
-            NodeState::SyncingToGenesis
-        } else {
-            NodeState::FastSyncing
-        };
+        let node_state = NodeState::FastSyncing;
         let rest_server = RestServer::new(
             config.rest_server.clone(),
             effect_builder,
@@ -861,12 +857,7 @@ impl reactor::Reactor for Reactor {
                 );
                 self.dispatch_event(effect_builder, rng, reactor_event)
             }
-            JoinerEvent::ChainSynchronizerAnnouncement(
-                ChainSynchronizerAnnouncement::SyncFinished,
-            ) => {
-                warn!("unexpected sync finished announcement in the joiner");
-                Effects::new()
-            }
+            JoinerEvent::ChainSynchronizerAnnouncement(_) => Effects::new(),
             JoinerEvent::RestServer(event) => reactor::wrap_effects(
                 JoinerEvent::RestServer,
                 self.rest_server.handle_event(effect_builder, rng, event),

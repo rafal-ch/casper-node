@@ -755,14 +755,14 @@ impl reactor::Reactor for Reactor {
             effect_builder,
             protocol_version,
             node_startup_instant,
-            NodeState::Participating,
+            NodeState::new_participating(),
         )?;
         let rest_server = RestServer::new(
             config.rest_server.clone(),
             effect_builder,
             protocol_version,
             node_startup_instant,
-            NodeState::Participating,
+            NodeState::new_participating(),
         )?;
 
         let fetcher_builder = FetcherBuilder::new(
@@ -1366,17 +1366,25 @@ impl reactor::Reactor for Reactor {
                 );
                 self.dispatch_event(effect_builder, rng, reactor_event)
             }
-            ParticipatingEvent::ChainSynchronizerAnnouncement(
-                ChainSynchronizerAnnouncement::SyncFinished,
-            ) => self.dispatch_event(
-                effect_builder,
-                rng,
-                ParticipatingEvent::SmallNetwork(
-                    small_network::Event::ChainSynchronizerAnnouncement(
-                        ChainSynchronizerAnnouncement::SyncFinished,
-                    ),
-                ),
-            ),
+            ParticipatingEvent::ChainSynchronizerAnnouncement(ann) => {
+                let mut effects = Effects::new();
+                effects.extend(self.dispatch_event(
+                    effect_builder,
+                    rng,
+                    ParticipatingEvent::SmallNetwork(ann.clone().into()),
+                ));
+                effects.extend(self.dispatch_event(
+                    effect_builder,
+                    rng,
+                    ParticipatingEvent::RestServer(ann.clone().into()),
+                ));
+                effects.extend(self.dispatch_event(
+                    effect_builder,
+                    rng,
+                    ParticipatingEvent::ChainSynchronizer(ann.into()),
+                ));
+                effects
+            }
             ParticipatingEvent::ChainspecLoaderAnnouncement(
                 ChainspecLoaderAnnouncement::UpgradeActivationPointRead(next_upgrade),
             ) => {

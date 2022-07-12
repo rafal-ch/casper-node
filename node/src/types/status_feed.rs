@@ -47,7 +47,7 @@ static GET_STATUS_RESULT: Lazy<GetStatusResult> = Lazy::new(|| {
         round_length: Some(TimeDiff::from(1 << 16)),
         version: crate::VERSION_STRING.as_str(),
         node_uptime: Duration::from_secs(13),
-        node_state: NodeState::Participating,
+        node_state: NodeState::new_participating(),
     };
     GetStatusResult::new(status_feed, DOCS_EXAMPLE_PROTOCOL_VERSION)
 });
@@ -75,15 +75,122 @@ impl ChainspecInfo {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, DataSize, Debug, Serialize, Deserialize, JsonSchema)]
+pub enum SyncStatus {
+    /// Node is fully synced.
+    FullySynced,
+    /// Node is still running the sync to genesis process in the background.
+    SyncInProgress {
+        full_block_height: Option<u64>,
+        destination_block_height: Option<u64>,
+        percent: Option<u64>,
+    },
+}
+
+impl SyncStatus {
+    pub fn new() -> Self {
+        Self::SyncInProgress {
+            full_block_height: None,
+            destination_block_height: None,
+            percent: None,
+        }
+    }
+
+    fn with_progress(full_block_height: u64, destination_block_height: Option<u64>) -> Self {
+        let percent = match destination_block_height {
+            Some(destination_block_height) if destination_block_height > 0 => {
+                Some(full_block_height * 100 / destination_block_height)
+            }
+            None | Some(_) => None,
+        };
+        Self::SyncInProgress {
+            full_block_height: Some(full_block_height),
+            destination_block_height,
+            percent,
+        }
+    }
+
+    fn with_destination(self, new_destination_block_height: u64) -> Self {
+        match self {
+            SyncStatus::FullySynced => self,
+            SyncStatus::SyncInProgress {
+                full_block_height,
+                destination_block_height: _,
+                percent: _,
+            } => SyncStatus::SyncInProgress {
+                full_block_height,
+                destination_block_height: Some(new_destination_block_height),
+                percent: if let Some(full_block_height) = full_block_height {
+                    if new_destination_block_height > 0 {
+                        Some(full_block_height * 100 / new_destination_block_height)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                },
+            },
+        }
+    }
+}
+
 /// The various possible states of operation for the node.
-#[derive(Clone, Copy, PartialEq, Eq, DataSize, Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Clone, Copy, PartialEq, Eq, DataSize, Debug, Serialize, Deserialize, JsonSchema)]
 pub enum NodeState {
     /// The node is currently in the fast syncing state.
     FastSyncing,
-    /// The node is currently in syncing to genesis state.
-    SyncingToGenesis,
-    /// The node is currently in the participating state.
-    Participating,
+    /// The node is currently participating, and optionally running the sync to genesis in the background
+    Participating(SyncStatus),
+}
+
+impl NodeState {
+    pub(crate) fn new_participating() -> Self {
+        Self::Participating(SyncStatus::new())
+    }
+
+    pub(crate) fn with_updated_progress(&self, new_full_block_height: u64) -> Self {
+        match self {
+            NodeState::Participating(SyncStatus::SyncInProgress {
+                full_block_height,
+                destination_block_height,
+                percent: _,
+            }) => match full_block_height {
+                Some(current_full_block_height)
+                    if new_full_block_height > *current_full_block_height =>
+                {
+                    NodeState::Participating(SyncStatus::with_progress(
+                        new_full_block_height,
+                        *destination_block_height,
+                    ))
+                }
+                None => NodeState::Participating(SyncStatus::with_progress(
+                    new_full_block_height,
+                    *destination_block_height,
+                )),
+                Some(_) => *self,
+            },
+            NodeState::FastSyncing | NodeState::Participating(_) => *self,
+        }
+    }
+
+    pub(crate) fn new_syncing_finished() -> Self {
+        Self::Participating(SyncStatus::FullySynced)
+    }
+
+    pub(crate) fn with_updated_destination_height(&self, destination_block_height: u64) -> Self {
+        match self {
+            NodeState::FastSyncing | NodeState::Participating(SyncStatus::FullySynced) => *self,
+            NodeState::Participating(SyncStatus::SyncInProgress {
+                full_block_height,
+                percent, // TODO[RC]: Should ignore here
+                destination_block_height: _,
+            }) => NodeState::Participating(SyncStatus::SyncInProgress {
+                full_block_height: *full_block_height,
+                destination_block_height: Some(destination_block_height),
+                percent: *percent,
+            }),
+        }
+    }
 }
 
 /// Data feed for client "info_get_status" endpoint.

@@ -36,6 +36,7 @@ use super::Component;
 use crate::{
     components::rpc_server::rpcs::docs::OPEN_RPC_SCHEMA,
     effect::{
+        announcements::ChainSynchronizerAnnouncement,
         requests::{
             ChainspecLoaderRequest, ConsensusRequest, MetricsRequest, NetworkInfoRequest,
             RestRequest, StorageRequest,
@@ -190,6 +191,34 @@ where
                 text,
                 main_responder,
             } => main_responder.respond(text).ignore(),
+            Event::ChainSynchronizer(ChainSynchronizerAnnouncement::BlockCompleted(height)) => {
+                if let Some(rest_server) = &mut self.inner_rest {
+                    error!("XXXXX - REST updating node state with height {}", height);
+                    rest_server.node_state = rest_server.node_state.with_updated_progress(height)
+                }
+                Effects::new()
+            }
+            Event::ChainSynchronizer(ChainSynchronizerAnnouncement::SyncFinished) => {
+                if let Some(rest_server) = &mut self.inner_rest {
+                    error!("XXXXX - REST updating node state to sync finished",);
+                    //rest_server.node_state = NodeState::new_syncing_finished();
+                }
+                Effects::new()
+            }
+            Event::ChainSynchronizer(ChainSynchronizerAnnouncement::BlockDestinationHeight(
+                destination_height,
+            )) => {
+                if let Some(rest_server) = &mut self.inner_rest {
+                    error!(
+                        "XXXXX - REST updating destination block height to {}",
+                        destination_height
+                    );
+                    rest_server.node_state = rest_server
+                        .node_state
+                        .with_updated_destination_height(destination_height);
+                }
+                Effects::new()
+            }
         }
     }
 }
