@@ -18,6 +18,7 @@
 //! multiplexed setup, guaranteed to not be impeding the flow of other channels.
 
 use std::{
+    error, fmt,
     marker::PhantomData,
     pin::Pin,
     task::{Context, Poll},
@@ -25,7 +26,46 @@ use std::{
 
 use futures::{Sink, SinkExt, Stream, StreamExt};
 
-use crate::error::Error;
+#[derive(Debug)]
+pub enum Error {
+    /// An ACK was received for an item that had not been sent yet.
+    UnexpectedAck {
+        actual: u64,
+        items_sent: u64,
+    },
+    /// Received an ACK for an item that an ACK was already received for.
+    DuplicateAck {
+        ack_received: u64,
+        highest: u64,
+    },
+    /// The ACK stream associated with a backpressured channel was close.
+    AckStreamClosed,
+    AckStreamError,
+}
+impl error::Error for Error {}
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::UnexpectedAck { actual, items_sent } => {
+                write!(
+                    f,
+                    "received ACK {}, but only sent {} items",
+                    actual, items_sent
+                )
+            }
+            Error::DuplicateAck {
+                ack_received,
+                highest,
+            } => write!(
+                f,
+                "duplicate ACK {} receveid, already received {}",
+                ack_received, highest
+            ),
+            Error::AckStreamClosed => write!(f, "ACK stream closed"),
+            Error::AckStreamError => write!(f, "ACK stream error"),
+        }
+    }
+}
 
 /// A back-pressuring sink.
 ///
@@ -84,9 +124,9 @@ where
     S: Sink<Item> + Unpin,
     Self: Unpin,
     A: Stream<Item = u64> + Unpin,
-    <S as Sink<Item>>::Error: std::error::Error,
+    <S as Sink<Item>>::Error: error::Error + 'static + Send + Sync,
 {
-    type Error = Error<<S as Sink<Item>>::Error>;
+    type Error = Box<dyn error::Error + Send + Sync>;
 
     #[inline]
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -102,14 +142,16 @@ where
                         return Poll::Ready(Err(Error::UnexpectedAck {
                             actual: ack_received,
                             items_sent: self_mut.last_request,
-                        }));
+                        }
+                        .into()));
                     }
 
                     if ack_received <= self_mut.received_ack {
                         return Poll::Ready(Err(Error::DuplicateAck {
                             ack_received,
                             highest: self_mut.received_ack,
-                        }));
+                        }
+                        .into()));
                     }
 
                     self_mut.received_ack = ack_received;
@@ -117,14 +159,14 @@ where
                 Poll::Ready(None) => {
                     // The ACK stream has been closed. Close our sink, now that we know, but try to
                     // flush as much as possible.
-                    match self_mut.inner.poll_close_unpin(cx).map_err(Error::Sink) {
+                    match self_mut.inner.poll_close_unpin(cx) {
                         Poll::Ready(Ok(())) => {
                             // All data has been flushed, we can now safely return an error.
-                            return Poll::Ready(Err(Error::AckStreamClosed));
+                            return Poll::Ready(Err(Error::AckStreamClosed.into()));
                         }
                         Poll::Ready(Err(_)) => {
                             // The was an error polling the ACK stream.
-                            return Poll::Ready(Err(Error::AckStreamError));
+                            return Poll::Ready(Err(Error::AckStreamError.into()));
                         }
                         Poll::Pending => {
                             // Data was flushed, but not done yet, keep polling.
@@ -148,7 +190,7 @@ where
         }
 
         // We have slots available, it is up to the wrapped sink to accept them.
-        self_mut.inner.poll_ready_unpin(cx).map_err(Error::Sink)
+        self_mut.inner.poll_ready_unpin(cx).map_err(Into::into)
     }
 
     #[inline]
@@ -158,7 +200,7 @@ where
 
         self_mut.last_request += 1;
 
-        self_mut.inner.start_send_unpin(item).map_err(Error::Sink)
+        self_mut.inner.start_send_unpin(item).map_err(Into::into)
     }
 
     #[inline]
@@ -166,7 +208,7 @@ where
         self.get_mut()
             .inner
             .poll_flush_unpin(cx)
-            .map_err(Error::Sink)
+            .map_err(Into::into)
     }
 
     #[inline]
@@ -174,7 +216,7 @@ where
         self.get_mut()
             .inner
             .poll_close_unpin(cx)
-            .map_err(Error::Sink)
+            .map_err(Into::into)
     }
 }
 

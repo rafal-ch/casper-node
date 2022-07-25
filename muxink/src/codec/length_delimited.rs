@@ -6,10 +6,9 @@
 //! The module provides an encoder through the [`Transcoder`] implementation, and a [`FrameDecoder`]
 //! for reading these length delimited frames back from a stream.
 
-use std::convert::Infallible;
+use std::{convert::Infallible, error, fmt};
 
 use bytes::{Buf, Bytes, BytesMut};
-use thiserror::Error;
 
 use super::{DecodeResult, FrameDecoder, Transcoder};
 use crate::ImmediateFrame;
@@ -49,9 +48,18 @@ impl FrameDecoder for LengthDelimited {
 }
 
 /// A length-based encoding error.
-#[derive(Debug, Error)]
-#[error("outgoing frame would exceed maximum frame length of 64 KB: {0}")]
+#[derive(Debug)]
 pub struct LengthExceededError(usize);
+impl error::Error for LengthExceededError {}
+impl fmt::Display for LengthExceededError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "outgoing frame would exceed maximum frame length of 64 KB: {0}",
+            self.0
+        )
+    }
+}
 
 /// The frame type for length prefixed frames.
 pub type LengthPrefixedFrame<F> = bytes::buf::Chain<ImmediateFrame<[u8; 2]>, F>;
@@ -60,7 +68,7 @@ impl<F> Transcoder<F> for LengthDelimited
 where
     F: Buf + Send + Sync + 'static,
 {
-    type Error = LengthExceededError;
+    type Error = Box<dyn error::Error + Send + Sync + 'static>;
     type Output = LengthPrefixedFrame<F>;
 
     fn transcode(&mut self, input: F) -> Result<Self::Output, Self::Error> {

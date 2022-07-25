@@ -6,7 +6,7 @@
 //! trait.
 
 use std::{
-    io,
+    error, io,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -175,8 +175,9 @@ where
     <E as Transcoder<F>>::Output: Buf,
     F: Buf,
     W: AsyncWrite + Unpin,
+    <E as Transcoder<F>>::Error: std::error::Error,
 {
-    type Error = io::Error;
+    type Error = Box<dyn error::Error + Send + Sync>;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let self_mut = self.get_mut();
@@ -189,10 +190,8 @@ where
     }
 
     fn start_send(mut self: Pin<&mut Self>, item: F) -> Result<(), Self::Error> {
-        let wrapped_frame = self
-            .encoder
-            .transcode(item)
-            .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+        let wrapped_frame = self.encoder.transcode(item);
+        let wrapped_frame = wrapped_frame?;
         self.current_frame = Some(wrapped_frame);
 
         // We could eaglerly poll and send to the underlying writer here, but for ease of
@@ -209,7 +208,7 @@ where
 
         // Finally it makes sense to flush.
         let wpin = Pin::new(&mut self_mut.stream);
-        wpin.poll_flush(cx)
+        wpin.poll_flush(cx).map_err(Into::into)
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -219,6 +218,6 @@ where
         try_ready!(ready!(self_mut.finish_sending(cx)));
 
         let wpin = Pin::new(&mut self_mut.stream);
-        wpin.poll_close(cx)
+        wpin.poll_close(cx).map_err(Into::into)
     }
 }

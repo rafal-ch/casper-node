@@ -5,16 +5,17 @@
 //! last fragment.
 
 use std::{
+    convert::Infallible,
+    error,
+    fmt::{self, Debug},
     num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll},
 };
 
+use crate::{try_ready, ImmediateFrame};
 use bytes::{Buf, Bytes, BytesMut};
 use futures::{ready, Sink, SinkExt, Stream, StreamExt};
-use thiserror::Error;
-
-use crate::{error::Error, try_ready, ImmediateFrame};
 
 pub type SingleFragment = bytes::buf::Chain<ImmediateFrame<[u8; 1]>, Bytes>;
 
@@ -50,13 +51,29 @@ where
     fn flush_current_frame(
         &mut self,
         cx: &mut Context<'_>,
-    ) -> Poll<Result<(), <S as Sink<SingleFragment>>::Error>> {
+    ) -> Poll<Result<(), Box<dyn error::Error + Send + Sync>>>
+    where
+        // TODO[RC]: ?
+        <S as futures::Sink<bytes::buf::Chain<ImmediateFrame<[u8; 1]>, bytes::Bytes>>>::Error:
+            std::error::Error,
+        <S as futures::Sink<bytes::buf::Chain<ImmediateFrame<[u8; 1]>, bytes::Bytes>>>::Error:
+            std::marker::Send,
+        <S as futures::Sink<bytes::buf::Chain<ImmediateFrame<[u8; 1]>, bytes::Bytes>>>::Error: Sync,
+        <S as futures::Sink<bytes::buf::Chain<ImmediateFrame<[u8; 1]>, bytes::Bytes>>>::Error:
+            'static,
+    {
         loop {
             if self.current_fragment.is_some() {
                 // There is fragment data to send, attempt to make progress:
 
                 // First, poll the sink until it is ready to accept another item.
-                try_ready!(ready!(self.sink.poll_ready_unpin(cx)));
+                match match self.sink.poll_ready_unpin(cx) {
+                    Poll::Ready(t) => t,
+                    Poll::Pending => return Poll::Pending,
+                } {
+                    Err(e) => return Poll::Ready(Err(e.into())),
+                    Ok(v) => v,
+                }
 
                 // Extract the item and push it into the underlying sink.
                 try_ready!(self
@@ -91,14 +108,21 @@ impl<F, S> Sink<F> for Fragmentizer<S, F>
 where
     F: Buf + Send + Sync + 'static + Unpin,
     S: Sink<SingleFragment> + Unpin,
+    // TODO[RC]: ?
+    <S as futures::Sink<bytes::buf::Chain<ImmediateFrame<[u8; 1]>, bytes::Bytes>>>::Error:
+        std::error::Error,
+    <S as futures::Sink<bytes::buf::Chain<ImmediateFrame<[u8; 1]>, bytes::Bytes>>>::Error:
+        std::marker::Send,
+    <S as futures::Sink<bytes::buf::Chain<ImmediateFrame<[u8; 1]>, bytes::Bytes>>>::Error: Sync,
+    <S as futures::Sink<bytes::buf::Chain<ImmediateFrame<[u8; 1]>, bytes::Bytes>>>::Error: 'static,
 {
-    type Error = <S as Sink<SingleFragment>>::Error;
+    type Error = Box<dyn error::Error + Send + Sync>;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let self_mut = self.get_mut();
 
         // We will be ready to accept another item once the current one has been flushed fully.
-        self_mut.flush_current_frame(cx)
+        self_mut.flush_current_frame(cx).map_err(Into::into)
     }
 
     fn start_send(self: Pin<&mut Self>, item: F) -> Result<(), Self::Error> {
@@ -147,43 +171,58 @@ impl<S> Defragmentizer<S> {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum DefragmentizerError<StreamErr> {
+#[derive(Debug)]
+pub enum Error<StreamErr>
+where
+    StreamErr: Debug,
+{
     /// A fragment header was sent that is not `MORE_FRAGMENTS` or `FINAL_FRAGMENT`.
-    #[error(
-        "received invalid fragment header of {}, expected {} or {}",
-        0,
-        MORE_FRAGMENTS,
-        FINAL_FRAGMENT
-    )]
     InvalidFragmentHeader(u8),
     /// A fragment with a length of zero was received that was not final, which is not allowed to
     /// prevent spam with this kind of frame.
-    #[error("received fragment with zero length that was not final")]
+    // #[error("received fragment with zero length that was not final")]
     NonFinalZeroLengthFragment,
     /// A zero-length fragment (including the envelope) was received, i.e. missing the header.
-    #[error("missing fragment header")]
+    // #[error("missing fragment header")]
     MissingFragmentHeader,
     /// The incoming stream was closed, with data still in the buffer, missing a final fragment.
-    #[error("stream closed mid-frame")]
     IncompleteFrame,
     /// Reading the next fragment would cause the frame to exceed the maximum size.
-    #[error("would exceed maximum frame size of {max}")]
     MaximumFrameSizeExceeded {
         /// The configure maximum frame size.
         max: usize,
     },
     /// An error in the underlying transport stream.
-    #[error(transparent)]
     Io(StreamErr),
 }
+// TODO[RC]: Io<StreamErr>
+impl<StreamErr: Debug> error::Error for Error<StreamErr> {}
+impl<StreamErr: Debug> fmt::Display for Error<StreamErr> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::InvalidFragmentHeader(header) => write!(
+                f,
+                "received invalid fragment header of {}, expected {} or {}",
+                header, MORE_FRAGMENTS, FINAL_FRAGMENT
+            ),
+            Error::NonFinalZeroLengthFragment => {
+                write!(f, "received fragment with zero length that was not final")
+            }
+            Error::MissingFragmentHeader => write!(f, "missing fragment header"),
+            Error::IncompleteFrame => write!(f, "stream closed mid-frame"),
+            Error::MaximumFrameSizeExceeded { max } => {
+                write!(f, "would exceed maximum frame size of {}", max)
+            }
+            Error::Io(stream_err) => write!(f, "IO stream error: {:?}", stream_err), // TODO[RC]: Use Display instead of Debug
+        }
+    }
+}
 
-impl<S, E> Stream for Defragmentizer<S>
+impl<S> Stream for Defragmentizer<S>
 where
-    S: Stream<Item = Result<Bytes, E>> + Unpin,
-    E: std::error::Error,
+    S: Stream<Item = Result<Bytes, Box<dyn error::Error + Send + Sync>>> + Unpin,
 {
-    type Item = Result<Bytes, DefragmentizerError<E>>;
+    type Item = Result<Bytes, Box<dyn error::Error + Send + Sync>>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let self_mut = self.get_mut();
@@ -194,13 +233,14 @@ where
                         Some(MORE_FRAGMENTS) => true,
                         Some(FINAL_FRAGMENT) => false,
                         Some(invalid) => {
-                            return Poll::Ready(Some(Err(
-                                DefragmentizerError::InvalidFragmentHeader(invalid),
-                            )));
+                            return Poll::Ready(Some(Err(Error::InvalidFragmentHeader::<
+                                Infallible,
+                            >(invalid)
+                            .into())));
                         }
                         None => {
                             return Poll::Ready(Some(Err(
-                                DefragmentizerError::MissingFragmentHeader,
+                                Error::MissingFragmentHeader::<Infallible>.into(),
                             )))
                         }
                     };
@@ -208,20 +248,22 @@ where
 
                     // We do not allow 0-length continuation frames to prevent DOS attacks.
                     if next_fragment.is_empty() && !is_final {
-                        return Poll::Ready(Some(Err(
-                            DefragmentizerError::NonFinalZeroLengthFragment,
-                        )));
+                        return Poll::Ready(Some(Err(Error::NonFinalZeroLengthFragment::<
+                            Infallible,
+                        >
+                            .into())));
                     }
 
                     // Check if we exceeded the maximum buffer.
                     if self_mut.buffer.len() + next_fragment.remaining()
                         > self_mut.max_output_frame_size
                     {
-                        return Poll::Ready(Some(Err(
-                            DefragmentizerError::MaximumFrameSizeExceeded {
-                                max: self_mut.max_output_frame_size,
-                            },
-                        )));
+                        return Poll::Ready(Some(Err(Error::MaximumFrameSizeExceeded::<
+                            Infallible,
+                        > {
+                            max: self_mut.max_output_frame_size,
+                        }
+                        .into())));
                     }
 
                     self_mut.buffer.extend(next_fragment);
@@ -231,13 +273,13 @@ where
                         return Poll::Ready(Some(Ok(frame)));
                     }
                 }
-                Some(Err(err)) => return Poll::Ready(Some(Err(DefragmentizerError::Io(err)))),
+                Some(Err(err)) => return Poll::Ready(Some(Err(Error::Io(err).into()))),
                 None => {
                     if self_mut.buffer.is_empty() {
                         // All good, stream just closed.
                         return Poll::Ready(None);
                     } else {
-                        return Poll::Ready(Some(Err(DefragmentizerError::IncompleteFrame)));
+                        return Poll::Ready(Some(Err(Error::IncompleteFrame::<Infallible>.into())));
                     }
                 }
             }
@@ -254,7 +296,7 @@ where
 pub fn fragment_frame<B: Buf>(
     mut frame: B,
     fragment_size: NonZeroUsize,
-) -> Result<impl Iterator<Item = SingleFragment>, Error> {
+) -> Result<impl Iterator<Item = SingleFragment>, Box<dyn error::Error + Send + Sync>> {
     let fragment_size: usize = fragment_size.into();
     let num_frames = (frame.remaining() + fragment_size - 1) / fragment_size;
 

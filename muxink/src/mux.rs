@@ -18,6 +18,7 @@
 //! hold the underlying output sink hostage until all items are send.
 
 use std::{
+    error, fmt,
     pin::Pin,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -31,9 +32,21 @@ use futures::{ready, FutureExt, Sink, SinkExt};
 use tokio::sync::{Mutex, OwnedMutexGuard};
 use tokio_util::sync::ReusableBoxFuture;
 
-use crate::{error::Error, try_ready, ImmediateFrame};
+use crate::{try_ready, ImmediateFrame};
 
 pub type ChannelPrefixedFrame<F> = bytes::buf::Chain<ImmediateFrame<[u8; 1]>, F>;
+
+#[derive(Debug)]
+pub enum Error {
+    /// The multiplexer was closed, while a handle tried to access it.
+    MultiplexerClosed,
+}
+impl error::Error for Error {}
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Multiplexer closed")
+    }
+}
 
 /// A frame multiplexer.
 ///
@@ -191,11 +204,11 @@ where
 
 impl<F, S> Sink<F> for MultiplexerHandle<S>
 where
-    S: Sink<ChannelPrefixedFrame<F>> + Unpin + Send + 'static,
+    S: Sink<ChannelPrefixedFrame<F>> + Unpin + Send + Sync + 'static,
     F: Buf,
-    <S as Sink<ChannelPrefixedFrame<F>>>::Error: std::error::Error,
+    <S as Sink<ChannelPrefixedFrame<F>>>::Error: std::error::Error + Send + Sync + 'static,
 {
-    type Error = Error<<S as Sink<ChannelPrefixedFrame<F>>>::Error>;
+    type Error = Box<dyn error::Error + Send + Sync>;
 
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let sink_guard = ready!(self.acquire_lock(cx));
@@ -203,7 +216,7 @@ where
         // We have acquired the lock, now our job is to wait for the sink to become ready.
         try_ready!(sink_guard.as_mut().ok_or(Error::MultiplexerClosed))
             .poll_ready_unpin(cx)
-            .map_err(Error::Sink)
+            .map_err(Into::into)
     }
 
     fn start_send(mut self: Pin<&mut Self>, item: F) -> Result<(), Self::Error> {
@@ -220,11 +233,11 @@ where
         let sink = match guard.as_mut() {
             Some(sink) => sink,
             None => {
-                return Err(Error::MultiplexerClosed);
+                return Err(Error::MultiplexerClosed.into());
             }
         };
 
-        sink.start_send_unpin(prefixed).map_err(Error::Sink)?;
+        sink.start_send_unpin(prefixed)?;
 
         // Item is enqueued, increase the send count.
         let last_send = self.send_count.fetch_add(1, Ordering::SeqCst) + 1;
@@ -260,7 +273,7 @@ where
             }
             None => {
                 self.sink_guard.take();
-                return Poll::Ready(Err(Error::MultiplexerClosed));
+                return Poll::Ready(Err(Error::MultiplexerClosed.into()));
             }
         };
 
@@ -272,7 +285,7 @@ where
         // Release lock.
         self.sink_guard.take();
 
-        Poll::Ready(outcome.map_err(Error::Sink))
+        Poll::Ready(outcome).map_err(Into::into)
     }
 
     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -292,7 +305,7 @@ where
         // Release lock.
         self.sink_guard.take();
 
-        Poll::Ready(outcome.map_err(Error::Sink))
+        Poll::Ready(outcome).map_err(Into::into)
     }
 }
 

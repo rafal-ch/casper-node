@@ -27,7 +27,8 @@ pub mod bincode;
 pub mod length_delimited;
 
 use std::{
-    fmt::Debug,
+    error,
+    fmt::{self, Debug},
     marker::PhantomData,
     pin::Pin,
     task::{Context, Poll},
@@ -43,7 +44,7 @@ use thiserror::Error;
 /// state or configuration, which is why this trait is not just a function.
 pub trait Transcoder<Input> {
     /// Transcoding error.
-    type Error: std::error::Error + Debug + Send + Sync + 'static;
+    type Error: Debug + Send + Sync + 'static;
 
     /// The output produced by the transcoder.
     type Output: Send + Sync + 'static;
@@ -91,14 +92,21 @@ pub enum DecodeResult<T, E> {
 }
 
 /// Error transcoding data from/for an underlying input/output type.
-#[derive(Debug, Error)]
-pub enum TranscodingIoError<TransErr, IoErr> {
+#[derive(Debug)]
+pub enum TranscodingIoError<TransErr: Debug, IoErr: Debug> {
     /// The transcoder failed to transcode the given value.
-    #[error("transcoding failed")]
-    Transcoder(#[source] TransErr),
+    Transcoder(TransErr),
     /// The wrapped input/output returned an error.
-    #[error(transparent)]
     Io(IoErr),
+}
+impl<TransErr: Debug, IoErr: Debug> error::Error for TranscodingIoError<TransErr, IoErr> {}
+impl<TransErr: Debug, IoErr: Debug> fmt::Display for TranscodingIoError<TransErr, IoErr> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TranscodingIoError::Transcoder(_) => write!(f, "transcoding failed"),
+            TranscodingIoError::Io(_) => write!(f, "IoError"),
+        }
+    }
 }
 
 /// A sink adapter for transcoding incoming values into an underlying sink.

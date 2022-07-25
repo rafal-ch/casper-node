@@ -160,7 +160,7 @@ pub struct SinkObstruction {
 macro_rules! sink_impl_fwd {
     ($ty:ty) => {
         impl<F: Buf> Sink<F> for $ty {
-            type Error = Infallible;
+            type Error = Box<dyn error::Error + Send + Sync>;
 
             fn poll_ready(
                 self: Pin<&mut Self>,
