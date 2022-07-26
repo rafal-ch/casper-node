@@ -40,7 +40,7 @@ impl<T> Transcoder<T> for BincodeEncoder<T>
 where
     T: Serialize,
 {
-    type Error = bincode::Error;
+    type Error = Box<dyn error::Error + Send + Sync>;
 
     type Output = Bytes;
 
@@ -73,7 +73,7 @@ where
     T: DeserializeOwned + Send + Sync + 'static,
     R: AsRef<[u8]>,
 {
-    type Error = bincode::Error;
+    type Error = Box<dyn error::Error + Send + Sync>;
 
     type Output = T;
 
@@ -86,7 +86,7 @@ impl<T> FrameDecoder for BincodeDecoder<T>
 where
     T: DeserializeOwned + Send + Sync + 'static,
 {
-    type Error = bincode::Error;
+    type Error = Box<dyn error::Error + Send + Sync>;
     type Output = T;
 
     fn decode_frame(&mut self, buffer: &mut BytesMut) -> DecodeResult<Self::Output, Self::Error> {

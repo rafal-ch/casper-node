@@ -226,9 +226,9 @@ mod tests {
     use tokio::sync::mpsc::UnboundedSender;
     use tokio_stream::wrappers::UnboundedReceiverStream;
 
-    use crate::error::Error;
-
     use super::BackpressuredSink;
+
+    use crate::backpressured::Error::{AckStreamClosed, DuplicateAck, UnexpectedAck};
 
     /// Window size used in tests.
     const WINDOW_SIZE: u64 = 3;
@@ -288,9 +288,12 @@ mod tests {
         // We can now close the ACK stream to check if the sink errors after that.
         drop(ack_sender);
 
+        let x = bp.send('I').now_or_never();
+
+        let expected_error = Box::new(AckStreamClosed);
         assert!(matches!(
             bp.send('I').now_or_never(),
-            Some(Err(Error::AckStreamClosed))
+            Some(Err(expected_error))
         ));
 
         // Check all data was received correctly.
@@ -307,12 +310,13 @@ mod tests {
         bp.send('B').now_or_never().unwrap().unwrap();
         ack_sender.send(3).unwrap();
 
+        let expected_error = Box::new(UnexpectedAck {
+            items_sent: 2,
+            actual: 3,
+        });
         assert!(matches!(
             bp.send('C').now_or_never(),
-            Some(Err(Error::UnexpectedAck {
-                items_sent: 2,
-                actual: 3
-            }))
+            Some(Err(expected_error))
         ));
     }
 
@@ -325,12 +329,13 @@ mod tests {
         ack_sender.send(2).unwrap();
         ack_sender.send(1).unwrap();
 
+        let expected_error = Box::new(DuplicateAck {
+            ack_received: 1,
+            highest: 2,
+        });
         assert!(matches!(
             bp.send('C').now_or_never(),
-            Some(Err(Error::DuplicateAck {
-                ack_received: 1,
-                highest: 2
-            }))
+            Some(Err(expected_error))
         ));
     }
 }

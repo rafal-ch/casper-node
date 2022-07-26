@@ -65,7 +65,7 @@ pub trait Transcoder<Input> {
 /// transcoder implementing [`Transcoder`].
 pub trait FrameDecoder {
     /// Decoding error.
-    type Error: std::error::Error + Send + Sync + 'static;
+    type Error: error::Error + Send + Sync + 'static;
 
     type Output: Send + Sync + 'static;
 
@@ -103,8 +103,10 @@ impl<TransErr: Debug, IoErr: Debug> error::Error for TranscodingIoError<TransErr
 impl<TransErr: Debug, IoErr: Debug> fmt::Display for TranscodingIoError<TransErr, IoErr> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TranscodingIoError::Transcoder(_) => write!(f, "transcoding failed"),
-            TranscodingIoError::Io(_) => write!(f, "IoError"),
+            TranscodingIoError::Transcoder(trans_err) => {
+                write!(f, "transcoding failed: {:?}", trans_err)
+            }
+            TranscodingIoError::Io(io_err) => write!(f, "IoError: {:?}", io_err),
         }
     }
 }
@@ -137,17 +139,15 @@ where
     T: Transcoder<Input> + Unpin,
     S: Sink<T::Output> + Unpin,
     T::Output: std::fmt::Debug,
-    <S as Sink<T::Output>>::Error: std::error::Error,
+    <S as Sink<T::Output>>::Error: error::Error + Send + Sync + 'static,
+    <T as Transcoder<Input>>::Error: std::error::Error,
 {
-    type Error = TranscodingIoError<T::Error, S::Error>;
+    type Error = Box<dyn error::Error + Send + Sync>;
 
     #[inline]
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let self_mut = self.get_mut();
-        self_mut
-            .sink
-            .poll_ready_unpin(cx)
-            .map_err(TranscodingIoError::Io)
+        self_mut.sink.poll_ready_unpin(cx).map_err(Into::into)
     }
 
     #[inline]
@@ -157,30 +157,24 @@ where
         let transcoded = self_mut
             .transcoder
             .transcode(item)
-            .map_err(TranscodingIoError::Transcoder)?;
+            .map_err(|e| Box::new(e))?;
 
         self_mut
             .sink
             .start_send_unpin(transcoded)
-            .map_err(TranscodingIoError::Io)
+            .map_err(Into::into)
     }
 
     #[inline]
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let self_mut = self.get_mut();
-        self_mut
-            .sink
-            .poll_flush_unpin(cx)
-            .map_err(TranscodingIoError::Io)
+        self_mut.sink.poll_flush_unpin(cx).map_err(Into::into)
     }
 
     #[inline]
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let self_mut = self.get_mut();
-        self_mut
-            .sink
-            .poll_close_unpin(cx)
-            .map_err(TranscodingIoError::Io)
+        self_mut.sink.poll_close_unpin(cx).map_err(Into::into)
     }
 }
 

@@ -2,6 +2,7 @@
 
 use std::{
     convert::Infallible,
+    error,
     io::Read,
     ops::Deref,
     pin::Pin,
@@ -166,25 +167,25 @@ macro_rules! sink_impl_fwd {
                 self: Pin<&mut Self>,
                 cx: &mut Context<'_>,
             ) -> Poll<Result<(), Self::Error>> {
-                self.sink_poll_ready(cx)
+                self.sink_poll_ready(cx).map_err(Into::into)
             }
 
             fn start_send(self: Pin<&mut Self>, item: F) -> Result<(), Self::Error> {
-                self.sink_start_send(item)
+                self.sink_start_send(item).map_err(Into::into)
             }
 
             fn poll_flush(
                 self: Pin<&mut Self>,
                 cx: &mut Context<'_>,
             ) -> Poll<Result<(), Self::Error>> {
-                self.sink_poll_flush(cx)
+                self.sink_poll_flush(cx).map_err(Into::into)
             }
 
             fn poll_close(
                 self: Pin<&mut Self>,
                 cx: &mut Context<'_>,
             ) -> Poll<Result<(), Self::Error>> {
-                self.sink_poll_close(cx)
+                self.sink_poll_close(cx).map_err(Into::into)
             }
         }
     };

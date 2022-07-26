@@ -68,7 +68,7 @@ impl<F> Transcoder<F> for LengthDelimited
 where
     F: Buf + Send + Sync + 'static,
 {
-    type Error = Box<dyn error::Error + Send + Sync + 'static>;
+    type Error = Box<dyn error::Error + Send + Sync>;
     type Output = LengthPrefixedFrame<F>;
 
     fn transcode(&mut self, input: F) -> Result<Self::Output, Self::Error> {

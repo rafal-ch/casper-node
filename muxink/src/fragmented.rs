@@ -53,14 +53,7 @@ where
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), Box<dyn error::Error + Send + Sync>>>
     where
-        // TODO[RC]: ?
-        <S as futures::Sink<bytes::buf::Chain<ImmediateFrame<[u8; 1]>, bytes::Bytes>>>::Error:
-            std::error::Error,
-        <S as futures::Sink<bytes::buf::Chain<ImmediateFrame<[u8; 1]>, bytes::Bytes>>>::Error:
-            std::marker::Send,
-        <S as futures::Sink<bytes::buf::Chain<ImmediateFrame<[u8; 1]>, bytes::Bytes>>>::Error: Sync,
-        <S as futures::Sink<bytes::buf::Chain<ImmediateFrame<[u8; 1]>, bytes::Bytes>>>::Error:
-            'static,
+        <S as futures::Sink<SingleFragment>>::Error: error::Error + Send + Sync + 'static,
     {
         loop {
             if self.current_fragment.is_some() {
@@ -108,13 +101,7 @@ impl<F, S> Sink<F> for Fragmentizer<S, F>
 where
     F: Buf + Send + Sync + 'static + Unpin,
     S: Sink<SingleFragment> + Unpin,
-    // TODO[RC]: ?
-    <S as futures::Sink<bytes::buf::Chain<ImmediateFrame<[u8; 1]>, bytes::Bytes>>>::Error:
-        std::error::Error,
-    <S as futures::Sink<bytes::buf::Chain<ImmediateFrame<[u8; 1]>, bytes::Bytes>>>::Error:
-        std::marker::Send,
-    <S as futures::Sink<bytes::buf::Chain<ImmediateFrame<[u8; 1]>, bytes::Bytes>>>::Error: Sync,
-    <S as futures::Sink<bytes::buf::Chain<ImmediateFrame<[u8; 1]>, bytes::Bytes>>>::Error: 'static,
+    <S as Sink<SingleFragment>>::Error: error::Error + Send + Sync + 'static,
 {
     type Error = Box<dyn error::Error + Send + Sync>;
 
@@ -195,7 +182,6 @@ where
     /// An error in the underlying transport stream.
     Io(StreamErr),
 }
-// TODO[RC]: Io<StreamErr>
 impl<StreamErr: Debug> error::Error for Error<StreamErr> {}
 impl<StreamErr: Debug> fmt::Display for Error<StreamErr> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

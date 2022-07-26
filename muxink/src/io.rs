@@ -175,7 +175,7 @@ where
     <E as Transcoder<F>>::Output: Buf,
     F: Buf,
     W: AsyncWrite + Unpin,
-    <E as Transcoder<F>>::Error: std::error::Error,
+    <E as Transcoder<F>>::Error: error::Error,
 {
     type Error = Box<dyn error::Error + Send + Sync>;
 

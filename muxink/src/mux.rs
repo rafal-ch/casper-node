@@ -206,7 +206,7 @@ impl<F, S> Sink<F> for MultiplexerHandle<S>
 where
     S: Sink<ChannelPrefixedFrame<F>> + Unpin + Send + Sync + 'static,
     F: Buf,
-    <S as Sink<ChannelPrefixedFrame<F>>>::Error: std::error::Error + Send + Sync + 'static,
+    <S as Sink<ChannelPrefixedFrame<F>>>::Error: error::Error + Send + Sync + 'static,
 {
     type Error = Box<dyn error::Error + Send + Sync>;
 
@@ -318,7 +318,7 @@ mod tests {
     use tokio::sync::Mutex;
 
     use crate::{
-        error::Error,
+        mux::Error::MultiplexerClosed,
         testing::{collect_bufs, testing_sink::TestingSink},
     };
 
@@ -381,7 +381,8 @@ mod tests {
             .now_or_never()
             .unwrap()
             .unwrap_err();
-        assert!(matches!(outcome, Error::MultiplexerClosed));
+        let expected_error = Box::new(MultiplexerClosed);
+        assert!(matches!(outcome, expected_error));
     }
 
     #[test]
