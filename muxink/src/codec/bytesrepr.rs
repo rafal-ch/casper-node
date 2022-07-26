@@ -1,7 +1,8 @@
 //! Bytesrepr encoding/decoding
 //!
 use std::{
-    error,
+    error, fmt,
+    fmt::{Debug, Display},
     io::{self, Cursor},
     marker::PhantomData,
 };
@@ -11,6 +12,21 @@ use casper_types::bytesrepr::{self, FromBytes, ToBytes};
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{DecodeResult, FrameDecoder, Transcoder};
+
+#[derive(Debug)]
+enum TranscoderError {
+    BufferNotExhausted { left: usize },
+}
+impl error::Error for TranscoderError {}
+impl Display for TranscoderError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TranscoderError::BufferNotExhausted { left } => {
+                write!(f, "{} bytes still in the buffer after decoding", left)
+            }
+        }
+    }
+}
 
 /// A bytesrepr encoder.
 #[derive(Default)]
@@ -63,7 +79,7 @@ impl<T> BytesreprDecoder<T> {
 impl<R, T> Transcoder<R> for BytesreprDecoder<T>
 where
     T: FromBytes + Send + Sync + 'static,
-    R: AsRef<[u8]>,
+    R: AsRef<[u8]> + Debug,
 {
     type Error = Box<dyn error::Error + Send + Sync + 'static>;
 
@@ -73,7 +89,9 @@ where
         let transcoded = FromBytes::from_bytes(input.as_ref());
         let (data, rem) = transcoded.expect("TODO[RC]: handle failure");
 
-        // TODO[RC]: Fail, if rem != 0
+        if !rem.is_empty() {
+            return Err(TranscoderError::BufferNotExhausted { left: rem.len() }.into());
+        }
 
         Ok(data)
     }
@@ -100,7 +118,7 @@ where
 mod tests {
     use super::DecodeResult;
     use crate::codec::{
-        bytesrepr::{BytesreprDecoder, BytesreprEncoder},
+        bytesrepr::{BytesreprDecoder, BytesreprEncoder, TranscoderError::BufferNotExhausted},
         BytesMut, FrameDecoder, Transcoder,
     };
 
@@ -131,11 +149,14 @@ mod tests {
         assert!(matches!(decoder.decode_frame(&mut bytes), DecodeResult::Item(i) if i == "defg"));
     }
 
-    // #[test]
-    // fn error_when_decoding_incorrect_data() {
-    //     let data = "abc";
+    #[test]
+    fn error_when_buffer_not_exhausted() {
+        let data = b"\x03\0\0\0abc\x04\0\0\0defg";
 
-    //     let mut decoder = BytesreprDecoder::<String>::new();
-    //     let decoded = decoder.transcode(data).expect_err("should not decode");
-    // }
+        let mut decoder = BytesreprDecoder::<String>::new();
+        let actual_error = decoder.transcode(data).unwrap_err();
+
+        let expected_error = Box::new(BufferNotExhausted { left: 8 });
+        assert_eq!(expected_error.to_string(), actual_error.to_string())
+    }
 }
