@@ -288,13 +288,9 @@ mod tests {
         // We can now close the ACK stream to check if the sink errors after that.
         drop(ack_sender);
 
-        let x = bp.send('I').now_or_never();
-
+        let actual_error = bp.send('I').now_or_never().unwrap().unwrap_err();
         let expected_error = Box::new(AckStreamClosed);
-        assert!(matches!(
-            bp.send('I').now_or_never(),
-            Some(Err(expected_error))
-        ));
+        assert_eq!(actual_error.to_string(), expected_error.to_string());
 
         // Check all data was received correctly.
         let output: String = bp.into_inner().0.into_iter().collect();
@@ -310,14 +306,13 @@ mod tests {
         bp.send('B').now_or_never().unwrap().unwrap();
         ack_sender.send(3).unwrap();
 
+        let actual_error = bp.send('C').now_or_never().unwrap().unwrap_err();
         let expected_error = Box::new(UnexpectedAck {
             items_sent: 2,
             actual: 3,
         });
-        assert!(matches!(
-            bp.send('C').now_or_never(),
-            Some(Err(expected_error))
-        ));
+
+        assert_eq!(actual_error.to_string(), expected_error.to_string())
     }
 
     #[test]
@@ -329,13 +324,11 @@ mod tests {
         ack_sender.send(2).unwrap();
         ack_sender.send(1).unwrap();
 
+        let actual_error = bp.send('C').now_or_never().unwrap().unwrap_err();
         let expected_error = Box::new(DuplicateAck {
             ack_received: 1,
             highest: 2,
         });
-        assert!(matches!(
-            bp.send('C').now_or_never(),
-            Some(Err(expected_error))
-        ));
+        assert_eq!(actual_error.to_string(), expected_error.to_string())
     }
 }
