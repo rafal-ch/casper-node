@@ -12,10 +12,12 @@ use casper_types::bytesrepr::{self, FromBytes, ToBytes};
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{DecodeResult, FrameDecoder, Transcoder};
+use crate::codec::DecodeResult::Failed;
 
 #[derive(Debug)]
 enum TranscoderError {
     BufferNotExhausted { left: usize },
+    BytesreprError(bytesrepr::Error),
 }
 impl error::Error for TranscoderError {}
 impl Display for TranscoderError {
@@ -23,6 +25,9 @@ impl Display for TranscoderError {
         match self {
             TranscoderError::BufferNotExhausted { left } => {
                 write!(f, "{} bytes still in the buffer after decoding", left)
+            }
+            TranscoderError::BytesreprError(inner) => {
+                write!(f, "bytesrepr error: {}", inner)
             }
         }
     }
@@ -55,7 +60,9 @@ where
     type Output = Bytes;
 
     fn transcode(&mut self, input: T) -> Result<Self::Output, Self::Error> {
-        let bytes = input.to_bytes().expect("TODO[RC]: handle failure");
+        let bytes = input
+            .to_bytes()
+            .map_err(|e| TranscoderError::BytesreprError(e))?;
 
         Ok(bytes.into())
     }
@@ -86,8 +93,8 @@ where
     type Output = T;
 
     fn transcode(&mut self, input: R) -> Result<Self::Output, Self::Error> {
-        let transcoded = FromBytes::from_bytes(input.as_ref());
-        let (data, rem) = transcoded.expect("TODO[RC]: handle failure");
+        let (data, rem) = FromBytes::from_bytes(input.as_ref())
+            .map_err(|e| TranscoderError::BytesreprError(e))?;
 
         if !rem.is_empty() {
             return Err(TranscoderError::BufferNotExhausted { left: rem.len() }.into());
@@ -106,11 +113,22 @@ where
 
     fn decode_frame(&mut self, buffer: &mut BytesMut) -> DecodeResult<Self::Output, Self::Error> {
         let transcoded = FromBytes::from_bytes(buffer.as_ref());
-        let (data, rem) = transcoded.expect("TODO[RC]: handle failure");
-
-        buffer.split_to(buffer.remaining() - rem.len());
-
-        DecodeResult::Item(data)
+        match transcoded {
+            Ok((data, rem)) => {
+                let _ = buffer.split_to(buffer.remaining() - rem.len());
+                DecodeResult::Item(data)
+            }
+            Err(err) => match &err {
+                bytesrepr::Error::EarlyEndOfStream => DecodeResult::Incomplete,
+                bytesrepr::Error::Formatting
+                | bytesrepr::Error::LeftOverBytes
+                | bytesrepr::Error::NotRepresentable
+                | bytesrepr::Error::ExceededRecursionDepth
+                | bytesrepr::Error::OutOfMemory => {
+                    Failed(TranscoderError::BytesreprError(err).into())
+                }
+            },
+        }
     }
 }
 
@@ -118,9 +136,13 @@ where
 mod tests {
     use super::DecodeResult;
     use crate::codec::{
-        bytesrepr::{BytesreprDecoder, BytesreprEncoder, TranscoderError::BufferNotExhausted},
+        bytesrepr::{
+            BytesreprDecoder, BytesreprEncoder,
+            TranscoderError::{BufferNotExhausted, BytesreprError},
+        },
         BytesMut, FrameDecoder, Transcoder,
     };
+    use casper_types::bytesrepr;
 
     #[test]
     fn roundtrip() {
@@ -157,6 +179,17 @@ mod tests {
         let actual_error = decoder.transcode(data).unwrap_err();
 
         let expected_error = Box::new(BufferNotExhausted { left: 8 });
+        assert_eq!(expected_error.to_string(), actual_error.to_string())
+    }
+
+    #[test]
+    fn error_when_data_incomplete() {
+        let data = b"\x03\0\0\0ab";
+
+        let mut decoder = BytesreprDecoder::<String>::new();
+        let actual_error = decoder.transcode(data).unwrap_err();
+
+        let expected_error = Box::new(BytesreprError(bytesrepr::Error::EarlyEndOfStream));
         assert_eq!(expected_error.to_string(), actual_error.to_string())
     }
 }

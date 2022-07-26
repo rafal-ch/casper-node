@@ -159,6 +159,6 @@ mod tests {
         let data = "abc";
 
         let mut decoder = BincodeDecoder::<String>::new();
-        let decoded = decoder.transcode(data).expect_err("should not decode");
+        let _ = decoder.transcode(data).expect_err("should not decode");
     }
 }
