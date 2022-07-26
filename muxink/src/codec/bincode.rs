@@ -121,9 +121,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::DecodeResult;
     use crate::codec::{
         bincode::{BincodeDecoder, BincodeEncoder},
-        Transcoder,
+        BytesMut, FrameDecoder, Transcoder,
     };
 
     #[test]
@@ -138,6 +139,19 @@ mod tests {
         let decoded = decoder.transcode(encoded).expect("should decode");
 
         assert_eq!(data, decoded);
+    }
+
+    #[test]
+    fn decodes_frame() {
+        let data = b"\x01\x02rem";
+
+        let mut bytes: BytesMut = BytesMut::new();
+        bytes.extend(data);
+
+        let mut decoder = BincodeDecoder::<u8>::new();
+
+        assert!(matches!(decoder.decode_frame(&mut bytes), DecodeResult::Item(i) if i == 1));
+        assert!(matches!(decoder.decode_frame(&mut bytes), DecodeResult::Item(i) if i == 2));
     }
 
     #[test]
