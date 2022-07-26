@@ -7,6 +7,7 @@
 //! opportunity for an attacker blow up computational complexity of incoming message parsing.
 
 use std::{
+    error,
     io::{self, Cursor},
     marker::PhantomData,
 };
@@ -40,12 +41,14 @@ impl<T> Transcoder<T> for BincodeEncoder<T>
 where
     T: Serialize,
 {
-    type Error = Box<dyn error::Error + Send + Sync>;
+    type Error = Box<dyn error::Error + Send + Sync + 'static>;
 
     type Output = Bytes;
 
     fn transcode(&mut self, input: T) -> Result<Self::Output, Self::Error> {
-        bincode::serialize(&input).map(Bytes::from)
+        bincode::serialize(&input)
+            .map(Bytes::from)
+            .map_err(Into::into)
     }
 }
 
@@ -73,12 +76,12 @@ where
     T: DeserializeOwned + Send + Sync + 'static,
     R: AsRef<[u8]>,
 {
-    type Error = Box<dyn error::Error + Send + Sync>;
+    type Error = Box<dyn error::Error + Send + Sync + 'static>;
 
     type Output = T;
 
     fn transcode(&mut self, input: R) -> Result<Self::Output, Self::Error> {
-        bincode::deserialize(input.as_ref())
+        bincode::deserialize(input.as_ref()).map_err(Into::into)
     }
 }
 
@@ -86,7 +89,7 @@ impl<T> FrameDecoder for BincodeDecoder<T>
 where
     T: DeserializeOwned + Send + Sync + 'static,
 {
-    type Error = Box<dyn error::Error + Send + Sync>;
+    type Error = Box<dyn error::Error + Send + Sync + 'static>;
     type Output = T;
 
     fn decode_frame(&mut self, buffer: &mut BytesMut) -> DecodeResult<Self::Output, Self::Error> {

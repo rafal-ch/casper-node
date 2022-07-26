@@ -76,6 +76,7 @@ impl<D, R> Stream for FrameReader<D, R>
 where
     D: FrameDecoder + Unpin,
     R: AsyncRead + Unpin,
+    <D as FrameDecoder>::Error: error::Error,
 {
     type Item = io::Result<<D as FrameDecoder>::Output>;
 

@@ -65,7 +65,7 @@ pub trait Transcoder<Input> {
 /// transcoder implementing [`Transcoder`].
 pub trait FrameDecoder {
     /// Decoding error.
-    type Error: error::Error + Send + Sync + 'static;
+    type Error: Send + Sync + 'static;
 
     type Output: Send + Sync + 'static;
 
