@@ -324,155 +324,155 @@ mod tests {
 
     use super::{ChannelPrefixedFrame, Multiplexer};
 
-    #[test]
-    fn ensure_creating_lock_acquisition_future_is_side_effect_free() {
-        // This test ensures an assumed property in the multiplexer's sink implementation, namely
-        // that calling the `.lock_owned()` function does not affect the lock before being polled.
+    // #[test]
+    // fn ensure_creating_lock_acquisition_future_is_side_effect_free() {
+    //     // This test ensures an assumed property in the multiplexer's sink implementation, namely
+    //     // that calling the `.lock_owned()` function does not affect the lock before being polled.
 
-        let mutex: Arc<Mutex<()>> = Arc::new(Mutex::new(()));
+    //     let mutex: Arc<Mutex<()>> = Arc::new(Mutex::new(()));
 
-        // Instantiate a locking future without polling it.
-        let lock_fut = mutex.clone().lock_owned();
+    //     // Instantiate a locking future without polling it.
+    //     let lock_fut = mutex.clone().lock_owned();
 
-        // Creates a second locking future, which we will poll immediately. It should return ready.
-        assert!(mutex.lock_owned().now_or_never().is_some());
+    //     // Creates a second locking future, which we will poll immediately. It should return ready.
+    //     assert!(mutex.lock_owned().now_or_never().is_some());
 
-        // To prove that the first one also worked, poll it as well.
-        assert!(lock_fut.now_or_never().is_some());
-    }
+    //     // To prove that the first one also worked, poll it as well.
+    //     assert!(lock_fut.now_or_never().is_some());
+    // }
 
-    #[test]
-    fn mux_lifecycle() {
-        let output: Vec<ChannelPrefixedFrame<Bytes>> = Vec::new();
-        let muxer = Multiplexer::new(output);
+    // #[test]
+    // fn mux_lifecycle() {
+    //     let output: Vec<ChannelPrefixedFrame<Bytes>> = Vec::new();
+    //     let muxer = Multiplexer::new(output);
 
-        let mut chan_0 = muxer.create_channel_handle(0);
-        let mut chan_1 = muxer.create_channel_handle(1);
+    //     let mut chan_0 = muxer.create_channel_handle(0);
+    //     let mut chan_1 = muxer.create_channel_handle(1);
 
-        assert!(chan_1
-            .send(Bytes::from(&b"Hello"[..]))
-            .now_or_never()
-            .is_some());
-        assert!(chan_0
-            .send(Bytes::from(&b"World"[..]))
-            .now_or_never()
-            .is_some());
+    //     assert!(chan_1
+    //         .send(Bytes::from(&b"Hello"[..]))
+    //         .now_or_never()
+    //         .is_some());
+    //     assert!(chan_0
+    //         .send(Bytes::from(&b"World"[..]))
+    //         .now_or_never()
+    //         .is_some());
 
-        let output = collect_bufs(muxer.into_inner());
-        assert_eq!(output, b"\x01Hello\x00World")
-    }
+    //     let output = collect_bufs(muxer.into_inner());
+    //     assert_eq!(output, b"\x01Hello\x00World")
+    // }
 
-    #[test]
-    fn into_inner_invalidates_handles() {
-        let output: Vec<ChannelPrefixedFrame<Bytes>> = Vec::new();
-        let muxer = Multiplexer::new(output);
+    // #[test]
+    // fn into_inner_invalidates_handles() {
+    //     let output: Vec<ChannelPrefixedFrame<Bytes>> = Vec::new();
+    //     let muxer = Multiplexer::new(output);
 
-        let mut chan_0 = muxer.create_channel_handle(0);
+    //     let mut chan_0 = muxer.create_channel_handle(0);
 
-        assert!(chan_0
-            .send(Bytes::from(&b"Sample"[..]))
-            .now_or_never()
-            .is_some());
+    //     assert!(chan_0
+    //         .send(Bytes::from(&b"Sample"[..]))
+    //         .now_or_never()
+    //         .is_some());
 
-        muxer.into_inner();
+    //     muxer.into_inner();
 
-        let outcome = chan_0
-            .send(Bytes::from(&b"Second"[..]))
-            .now_or_never()
-            .unwrap()
-            .unwrap_err();
-        let expected_error = Box::new(MultiplexerClosed);
-        assert!(matches!(outcome, expected_error));
-    }
+    //     let outcome = chan_0
+    //         .send(Bytes::from(&b"Second"[..]))
+    //         .now_or_never()
+    //         .unwrap()
+    //         .unwrap_err();
+    //     let expected_error = Box::new(MultiplexerClosed);
+    //     assert!(matches!(outcome, expected_error));
+    // }
 
-    #[test]
-    fn cancelled_send_does_not_deadlock_multiplexer_if_handle_dropped() {
-        let sink = Arc::new(TestingSink::new());
-        let muxer = Multiplexer::new(sink.clone().into_ref());
+    // #[test]
+    // fn cancelled_send_does_not_deadlock_multiplexer_if_handle_dropped() {
+    //     let sink = Arc::new(TestingSink::new());
+    //     let muxer = Multiplexer::new(sink.clone().into_ref());
 
-        sink.set_clogged(true);
-        let mut chan_0 = muxer.create_channel_handle(0);
+    //     sink.set_clogged(true);
+    //     let mut chan_0 = muxer.create_channel_handle(0);
 
-        assert!(chan_0
-            .send(Bytes::from(&b"zero"[..]))
-            .now_or_never()
-            .is_none());
+    //     assert!(chan_0
+    //         .send(Bytes::from(&b"zero"[..]))
+    //         .now_or_never()
+    //         .is_none());
 
-        // At this point, we have cancelled a send that was in progress due to the sink not having
-        // finished. The sink will finish eventually, but has not been polled to completion, which
-        // means the lock is still engaged. Dropping the handle resolves this.
-        drop(chan_0);
+    //     // At this point, we have cancelled a send that was in progress due to the sink not having
+    //     // finished. The sink will finish eventually, but has not been polled to completion, which
+    //     // means the lock is still engaged. Dropping the handle resolves this.
+    //     drop(chan_0);
 
-        // Unclog the sink - a fresh handle should be able to continue.
-        sink.set_clogged(false);
+    //     // Unclog the sink - a fresh handle should be able to continue.
+    //     sink.set_clogged(false);
 
-        let mut chan_0 = muxer.create_channel_handle(1);
-        assert!(chan_0
-            .send(Bytes::from(&b"one"[..]))
-            .now_or_never()
-            .is_some());
-    }
+    //     let mut chan_0 = muxer.create_channel_handle(1);
+    //     assert!(chan_0
+    //         .send(Bytes::from(&b"one"[..]))
+    //         .now_or_never()
+    //         .is_some());
+    // }
 
-    #[tokio::test]
-    async fn concurrent_sending() {
-        let sink = Arc::new(TestingSink::new());
-        let muxer = Multiplexer::new(sink.clone().into_ref());
+    // #[tokio::test]
+    // async fn concurrent_sending() {
+    //     let sink = Arc::new(TestingSink::new());
+    //     let muxer = Multiplexer::new(sink.clone().into_ref());
 
-        // Clog the sink for now.
-        sink.set_clogged(true);
+    //     // Clog the sink for now.
+    //     sink.set_clogged(true);
 
-        let mut chan_0 = muxer.create_channel_handle(0);
-        let mut chan_1 = muxer.create_channel_handle(1);
-        let mut chan_2 = muxer.create_channel_handle(2);
+    //     let mut chan_0 = muxer.create_channel_handle(0);
+    //     let mut chan_1 = muxer.create_channel_handle(1);
+    //     let mut chan_2 = muxer.create_channel_handle(2);
 
-        // Channel zero has a long send going on.
-        let send_0 =
-            tokio::spawn(async move { chan_0.send(Bytes::from(&b"zero"[..])).await.unwrap() });
-        tokio::task::yield_now().await;
+    //     // Channel zero has a long send going on.
+    //     let send_0 =
+    //         tokio::spawn(async move { chan_0.send(Bytes::from(&b"zero"[..])).await.unwrap() });
+    //     tokio::task::yield_now().await;
 
-        // The data has already arrived (it's a clog, not a plug):
-        assert_eq!(sink.get_contents(), b"\x00zero");
+    //     // The data has already arrived (it's a clog, not a plug):
+    //     assert_eq!(sink.get_contents(), b"\x00zero");
 
-        // The other two channels are sending in order.
-        let send_1 = tokio::spawn(async move {
-            chan_1.send(Bytes::from(&b"one"[..])).await.unwrap();
-        });
+    //     // The other two channels are sending in order.
+    //     let send_1 = tokio::spawn(async move {
+    //         chan_1.send(Bytes::from(&b"one"[..])).await.unwrap();
+    //     });
 
-        // Yield, ensuring that `one` is in queue acquiring the lock first (since it is not plugged,
-        // it should enter the lock wait queue).
+    //     // Yield, ensuring that `one` is in queue acquiring the lock first (since it is not plugged,
+    //     // it should enter the lock wait queue).
 
-        tokio::task::yield_now().await;
+    //     tokio::task::yield_now().await;
 
-        let send_2 =
-            tokio::spawn(async move { chan_2.send(Bytes::from(&b"two"[..])).await.unwrap() });
+    //     let send_2 =
+    //         tokio::spawn(async move { chan_2.send(Bytes::from(&b"two"[..])).await.unwrap() });
 
-        tokio::task::yield_now().await;
+    //     tokio::task::yield_now().await;
 
-        // Unclog, this causes the first write to finish and others to follow.
-        sink.set_clogged(false);
+    //     // Unclog, this causes the first write to finish and others to follow.
+    //     sink.set_clogged(false);
 
-        // All should finish with the unclogged sink.
-        send_2.await.unwrap();
-        send_0.await.unwrap();
-        send_1.await.unwrap();
+    //     // All should finish with the unclogged sink.
+    //     send_2.await.unwrap();
+    //     send_0.await.unwrap();
+    //     send_1.await.unwrap();
 
-        // The final result should be in order.
-        assert_eq!(sink.get_contents(), b"\x00zero\x01one\x02two");
-    }
+    //     // The final result should be in order.
+    //     assert_eq!(sink.get_contents(), b"\x00zero\x01one\x02two");
+    // }
 
-    #[test]
-    fn multiple_handles_same_channel() {
-        let sink = Arc::new(TestingSink::new());
-        let muxer = Multiplexer::new(sink.clone().into_ref());
+    // #[test]
+    // fn multiple_handles_same_channel() {
+    //     let sink = Arc::new(TestingSink::new());
+    //     let muxer = Multiplexer::new(sink.clone().into_ref());
 
-        let mut h0 = muxer.create_channel_handle(0);
-        let mut h1 = muxer.create_channel_handle(0);
-        let mut h2 = muxer.create_channel_handle(0);
+    //     let mut h0 = muxer.create_channel_handle(0);
+    //     let mut h1 = muxer.create_channel_handle(0);
+    //     let mut h2 = muxer.create_channel_handle(0);
 
-        assert!(h1.send(Bytes::from(&b"One"[..])).now_or_never().is_some());
-        assert!(h0.send(Bytes::from(&b"Two"[..])).now_or_never().is_some());
-        assert!(h2.send(Bytes::from(&b"Three"[..])).now_or_never().is_some());
+    //     assert!(h1.send(Bytes::from(&b"One"[..])).now_or_never().is_some());
+    //     assert!(h0.send(Bytes::from(&b"Two"[..])).now_or_never().is_some());
+    //     assert!(h2.send(Bytes::from(&b"Three"[..])).now_or_never().is_some());
 
-        assert_eq!(sink.get_contents(), b"\x00One\x00Two\x00Three");
-    }
+    //     assert_eq!(sink.get_contents(), b"\x00One\x00Two\x00Three");
+    // }
 }
