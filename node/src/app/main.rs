@@ -41,6 +41,7 @@ fn panic_hook(info: &PanicInfo) {
 fn main() -> anyhow::Result<()> {
     // The exit code is determined in a block to ensure that all acquired resources are dropped
     // before exiting with the given exit code.
+
     let exit_code = {
         let num_cpus = num_cpus::get();
         let runtime = Builder::new_multi_thread()

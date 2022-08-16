@@ -505,7 +505,11 @@ impl reactor::Reactor for Reactor {
         event_queue: EventQueueHandle<Self::Event>,
         _rng: &mut NodeRng,
     ) -> Result<(Self, Effects<Self::Event>), Self::Error> {
+        error!("XXXXX 100");
+
         let (root, initializer) = initializer.into_parts();
+
+        error!("XXXXX 101");
 
         let initializer::Reactor {
             config: with_dir_config,
@@ -515,24 +519,29 @@ impl reactor::Reactor for Reactor {
             small_network_identity,
         } = initializer;
 
+        error!("XXXXX 102");
+
         // We don't need to be super precise about the startup time, i.e.
         // we can skip the time spent in `initializer` for the sake of code simplicity.
         let node_startup_instant = Instant::now();
+
+        error!("XXXXX 103");
         // TODO: Remove wrapper around Reactor::Config instead.
         let (_, config) = with_dir_config.into_parts();
-
+        error!("XXXXX 104");
         let memory_metrics = MemoryMetrics::new(registry.clone())?;
-
+        error!("XXXXX 105");
         let event_queue_metrics = EventQueueMetrics::new(registry.clone(), event_queue)?;
-
+        error!("XXXXX 106");
         let metrics = Metrics::new(registry.clone());
-
+        error!("XXXXX 107");
         let chainspec = chainspec_loader.chainspec().as_ref();
+        error!("XXXXX 108");
         let (diagnostics_port, diagnostics_port_effects) = DiagnosticsPort::new(
             &WithDir::new(&root, config.diagnostics_port.clone()),
             event_queue,
         )?;
-
+        error!("XXXXX 109");
         let (small_network, small_network_effects) = SmallNetwork::new(
             event_queue,
             config.network.clone(),
@@ -541,46 +550,57 @@ impl reactor::Reactor for Reactor {
             small_network_identity,
             chainspec,
         )?;
-
+        error!("XXXXX 110");
         let mut effects = reactor::wrap_effects(JoinerEvent::SmallNetwork, small_network_effects);
+        error!("XXXXX 111");
         effects.extend(reactor::wrap_effects(
             JoinerEvent::DiagnosticsPort,
             diagnostics_port_effects,
         ));
+        error!("XXXXX 112");
 
         let address_gossiper =
             Gossiper::new_for_complete_items("address_gossiper", config.gossip, registry)?;
-
+        error!("XXXXX 113");
         let effect_builder = EffectBuilder::new(event_queue);
+        error!("XXXXX 114");
+        let maybe_immediate_switch_block_data =
+            chainspec_loader.maybe_immediate_switch_block_data();
+        error!("XXXXX 115");
         let (chain_synchronizer, sync_effects) =
             ChainSynchronizer::<JoinerEvent>::new_for_fast_sync(
                 Arc::clone(chainspec_loader.chainspec()),
+                maybe_immediate_switch_block_data,
                 config.node.clone(),
                 config.network.clone(),
                 effect_builder,
                 registry,
             )?;
+        error!("XXXXX 116");
         effects.extend(reactor::wrap_effects(
             JoinerEvent::ChainSynchronizer,
             sync_effects,
         ));
+        error!("XXXXX 117");
 
         let protocol_version = &chainspec_loader.chainspec().protocol_config.version;
+        error!("XXXXX 118");
         let rest_server = RestServer::new(
             config.rest_server.clone(),
             effect_builder,
             *protocol_version,
             node_startup_instant,
         )?;
+        error!("XXXXX 119");
 
         let event_stream_server = EventStreamServer::new(
             config.event_stream_server.clone(),
             storage.root_path().to_path_buf(),
             *protocol_version,
         )?;
-
+        error!("XXXXX 120");
         let fetcher_builder = FetcherBuilder::new(config.fetcher, registry);
-
+        error!("XXXXX 121");
         let deploy_fetcher = fetcher_builder.build("deploy")?;
         let finalized_approvals_fetcher = fetcher_builder.build("finalized_approvals")?;
         let block_by_height_fetcher = fetcher_builder.build("block_by_height")?;
@@ -594,7 +614,11 @@ impl reactor::Reactor for Reactor {
 
         let trie_or_chunk_fetcher = fetcher_builder.build("trie_or_chunk")?;
 
+        error!("XXXXX 122");
+
         let deploy_acceptor = DeployAcceptor::new(chainspec_loader.chainspec(), registry)?;
+
+        error!("XXXXX 123");
 
         let deploy_gossiper = Gossiper::new_for_partial_items(
             "deploy_gossiper",
@@ -603,10 +627,14 @@ impl reactor::Reactor for Reactor {
             registry,
         )?;
 
+        error!("XXXXX 124");
+
         effects.extend(reactor::wrap_effects(
             JoinerEvent::ChainspecLoader,
             chainspec_loader.start_checking_for_upgrades(effect_builder),
         ));
+
+        error!("XXXXX 125");
 
         Ok((
             Self {
@@ -1018,9 +1046,7 @@ impl reactor::Reactor for Reactor {
                 JoiningOutcome::ShouldExitForUpgrade => {
                     ReactorExit::ProcessShouldExit(ExitCode::Success)
                 }
-                JoiningOutcome::Synced { .. } | JoiningOutcome::RanUpgradeOrGenesis { .. } => {
-                    ReactorExit::ProcessShouldContinue
-                }
+                JoiningOutcome::Synced { .. } => ReactorExit::ProcessShouldContinue,
             })
     }
 

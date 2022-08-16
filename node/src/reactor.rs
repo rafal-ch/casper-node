@@ -698,7 +698,9 @@ where
     /// signal.
     pub(crate) async fn run(&mut self, rng: &mut NodeRng) -> ReactorExit {
         loop {
-            match TERMINATION_REQUESTED.load(Ordering::SeqCst) as i32 {
+            let x = TERMINATION_REQUESTED.load(Ordering::SeqCst) as i32;
+            error!("XXXXX, TERMINATION_REQUESTED = {}", x);
+            match x {
                 0 => {
                     if let Some(reactor_exit) = self.reactor.maybe_exit() {
                         self.is_shutting_down.set();
@@ -733,6 +735,7 @@ where
                             }
                         }
 
+                        error!("XXXXX, reactor_exit = {:?}", reactor_exit);
                         break reactor_exit;
                     }
                     if !self.crank(rng).await {

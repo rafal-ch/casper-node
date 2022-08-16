@@ -157,6 +157,8 @@ impl Cli {
                 // The metrics are shared across all reactors.
                 let registry = Registry::new();
 
+                error!("XXXXX 001");
+
                 let mut initializer_runner = Runner::<initializer::Reactor>::with_metrics(
                     validator_config,
                     &mut rng,
@@ -164,37 +166,63 @@ impl Cli {
                 )
                 .await?;
 
+                error!("XXXXX 002");
+
                 match initializer_runner.run(&mut rng).await {
                     ReactorExit::ProcessShouldExit(exit_code) => return Ok(exit_code as i32),
                     ReactorExit::ProcessShouldContinue => info!("finished initialization"),
                 }
 
+                error!("XXXXX 003");
+
                 let initializer = initializer_runner.drain_into_inner().await;
+
+                error!("XXXXX 004");
+
                 let root = config
                     .parent()
                     .map(|path| path.to_owned())
                     .unwrap_or_else(|| "/".into());
+
+                error!("XXXXX 005");
+
                 let mut joiner_runner = Runner::<joiner::Reactor>::with_metrics(
                     WithDir::new(root, initializer),
                     &mut rng,
                     &registry,
                 )
                 .await?;
+
+                error!("XXXXX 006");
+
                 match joiner_runner.run(&mut rng).await {
                     ReactorExit::ProcessShouldExit(exit_code) => return Ok(exit_code as i32),
                     ReactorExit::ProcessShouldContinue => info!("finished joining"),
                 }
 
+                error!("XXXXX 007");
+
                 let joiner_reactor = joiner_runner.drain_into_inner().await;
+
+                error!("XXXXX 008");
+
                 let config = joiner_reactor.into_participating_config().await?;
+
+                error!("XXXXX 009");
 
                 let mut participating_runner =
                     Runner::<participating::Reactor>::with_metrics(config, &mut rng, &registry)
                         .await?;
 
+                error!("XXXXX 010");
+
                 match participating_runner.run(&mut rng).await {
-                    ReactorExit::ProcessShouldExit(exit_code) => Ok(exit_code as i32),
+                    ReactorExit::ProcessShouldExit(exit_code) => {
+                        error!("XXXXX 011");
+                        Ok(exit_code as i32)
+                    }
                     reactor_exit => {
+                        error!("XXXXX 012");
                         error!("validator should not exit with {:?}", reactor_exit);
                         Ok(ExitCode::Abort as i32)
                     }
@@ -204,6 +232,7 @@ impl Cli {
                 old_config,
                 new_config,
             } => {
+                error!("XXXXX 013");
                 let new_config = Self::init(&new_config, vec![])?;
 
                 let old_root = old_config
@@ -226,6 +255,7 @@ impl Cli {
                 old_config,
                 new_config,
             } => {
+                error!("XXXXX 014");
                 let new_config = Self::init(&new_config, vec![])?;
 
                 let old_root = old_config
@@ -254,28 +284,42 @@ impl Cli {
     ) -> anyhow::Result<WithDir<participating::Config>> {
         // Determine the parent directory of the configuration file, if any.
         // Otherwise, we default to `/`.
-        let root = config
+        error!("XXXXX 0015");
+                let root = config
             .parent()
             .map(|path| path.to_owned())
             .unwrap_or_else(|| "/".into());
+
+            error!("XXXXX 016");
 
         // The app supports running without a config file, using default values.
         let encoded_config = fs::read_to_string(&config)
             .context("could not read configuration file")
             .with_context(|| config.display().to_string())?;
 
+            error!("XXXXX 017");
+
         // Get the TOML table version of the config indicated from CLI args, or from a new
         // defaulted config instance if one is not provided.
         let mut config_table: Value = toml::from_str(&encoded_config)?;
+
+        error!("XXXXX 018");
 
         // If any command line overrides to the config values are passed, apply them.
         for item in config_ext {
             item.update_toml_table(&mut config_table)?;
         }
 
+        error!("XXXXX 019");
+
         // Create participating config, including any overridden values.
         let participating_config: participating::Config = config_table.try_into()?;
+
+        error!("XXXXX 020");
+
         logging::init_with_config(&participating_config.logging)?;
+
+        error!("XXXXX 021");
 
         Ok(WithDir::new(root, participating_config))
     }
