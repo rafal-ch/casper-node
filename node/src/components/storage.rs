@@ -85,7 +85,7 @@ use crate::{
         BlockHeader, BlockHeaderWithMetadata, BlockHeadersBatch, BlockHeadersBatchId,
         BlockSignatures, BlockWithMetadata, Deploy, DeployHash, DeployMetadata, DeployMetadataExt,
         DeployWithFinalizedApprovals, FetcherItem, FinalitySignature, FinalizedApprovals,
-        FinalizedApprovalsWithId, Item, NodeId,
+        FinalizedApprovalsWithId, Item, NodeId, SyncLeap,
     },
     utils::{display_error, WithDir},
     NodeRng,

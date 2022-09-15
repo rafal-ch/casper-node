@@ -17,7 +17,6 @@ use datasize::DataSize;
 use prometheus::Registry;
 use tracing::error;
 
-use crate::reactor::participating::fetchers::Fetchers;
 use crate::{
     components::{
         block_proposer::{self, BlockProposer},
