@@ -5,11 +5,11 @@
 mod config;
 mod error;
 mod event;
+mod fetchers;
 mod memory_metrics;
 #[cfg(test)]
 mod tests;
 mod utils;
-mod fetchers;
 
 use std::{sync::Arc, time::Instant};
 
@@ -21,24 +21,25 @@ use crate::{
     components::{
         block_proposer::{self, BlockProposer},
         block_validator::{self, BlockValidator},
-        blocks_accumulator::{self, BlocksAccumulator},
+        blocks_accumulator::BlocksAccumulator,
         chain_synchronizer::{self, ChainSynchronizer},
         complete_block_synchronizer::{self, CompleteBlockSynchronizer},
         consensus::{self, EraSupervisor, HighwayProtocol},
-        contract_runtime::{self, ContractRuntime},
+        contract_runtime::ContractRuntime,
         deploy_acceptor::{self, DeployAcceptor},
         diagnostics_port::{self, DiagnosticsPort},
         event_stream_server::{self, EventStreamServer},
-        fetcher::{self, Fetcher},
         gossiper::{self, Gossiper},
         linear_chain::{self, LinearChainComponent},
         metrics::Metrics,
-        rest_server::RestServer, rest_server, rpc_server,
+        rest_server,
+        rest_server::RestServer,
+        rpc_server,
         rpc_server::RpcServer,
         small_network::{self, GossipedAddress, SmallNetwork},
         storage::Storage,
         upgrade_watcher::{self, UpgradeWatcher},
-        Component, InitializedComponent,
+        Component,
     },
     effect::{
         announcements::{
@@ -56,14 +57,18 @@ use crate::{
     },
     fatal,
     protocol::Message,
-    reactor::{self, event_queue_metrics::EventQueueMetrics, EventQueueHandle, ReactorExit, participating::utils::initialize_component},
+    reactor::{
+        self,
+        event_queue_metrics::EventQueueMetrics,
+        participating::{fetchers::Fetchers, utils::initialize_component},
+        EventQueueHandle, ReactorExit,
+    },
     types::{
-        Block, BlockAdded, BlockAndDeploys, BlockHeader, BlockHeaderWithMetadata,
-        BlockHeadersBatch, BlockSignatures, BlockWithMetadata, Chainspec, ChainspecRawBytes,
-        Deploy, ExitCode, FinalitySignature, FinalizedApprovalsWithId, Item, SyncLeap, TrieOrChunk,
+        BlockAdded, Chainspec, ChainspecRawBytes, Deploy, ExitCode, FinalitySignature, Item,
+        SyncLeap, TrieOrChunk,
     },
     utils::{Source, WithDir},
-    FetcherConfig, NodeRng,
+    NodeRng,
 };
 #[cfg(test)]
 use crate::{testing::network::NetworkedReactor, types::NodeId};
@@ -71,7 +76,6 @@ pub(crate) use config::Config;
 pub(crate) use error::Error;
 pub(crate) use event::ParticipatingEvent;
 use memory_metrics::MemoryMetrics;
-use crate::reactor::participating::fetchers::Fetchers;
 
 #[derive(DataSize, Debug)]
 enum ReactorState {
@@ -87,14 +91,18 @@ pub(crate) struct Reactor {
     contract_runtime: ContractRuntime, // TODO: handle the `set_initial_state`
     upgrade_watcher: UpgradeWatcher,
 
-    small_network: SmallNetwork<ParticipatingEvent, Message>, // TODO: handle setting the `is_syncing_peer` - needs internal init state
+    small_network: SmallNetwork<ParticipatingEvent, Message>, /* TODO: handle setting the
+                                                               * `is_syncing_peer` - needs
+                                                               * internal init state */
     // TODO - has its own timing belt - should it?
     address_gossiper: Gossiper<GossipedAddress, ParticipatingEvent>,
 
-    rpc_server: RpcServer, // TODO: make sure the handling in "Initialize & CatchUp" phase is correct (explicit error messages, etc.) - needs an init event?
+    rpc_server: RpcServer, /* TODO: make sure the handling in "Initialize & CatchUp" phase is
+                            * correct (explicit error messages, etc.) - needs an init event? */
     rest_server: RestServer,
     event_stream_server: EventStreamServer,
-    deploy_acceptor: DeployAcceptor, // TODO: should use `get_highest_COMPLETE_block_header_from_storage()`
+    deploy_acceptor: DeployAcceptor, /* TODO: should use
+                                      * `get_highest_COMPLETE_block_header_from_storage()` */
 
     fetchers: Fetchers,
 
@@ -103,7 +111,8 @@ pub(crate) struct Reactor {
     finality_signature_gossiper: Gossiper<FinalitySignature, ParticipatingEvent>,
 
     block_proposer: BlockProposer, // TODO: handle providing highest block, etc.
-    consensus: EraSupervisor, // TODO: Update constructor (provide less state) and extend handler for the "block added" ann.
+    consensus: EraSupervisor,      /* TODO: Update constructor (provide less state) and extend
+                                    * handler for the "block added" ann. */
     block_validator: BlockValidator,
     linear_chain: LinearChainComponent, // TODO: Maybe redundant.
     chain_synchronizer: ChainSynchronizer<ParticipatingEvent>, // TODO: To be removed.
@@ -128,14 +137,14 @@ impl Reactor {
         effect_builder: EffectBuilder<ParticipatingEvent>,
         _rng: &mut NodeRng,
     ) -> Effects<ParticipatingEvent> {
-        let mut effects = Effects::new();
+        let effects = Effects::new();
         match self.state {
             ReactorState::Initialize => {
                 if let Some(effects) = initialize_component(
                     effect_builder,
                     &mut self.diagnostics_port,
                     "diagnotics".to_string(),
-                    ParticipatingEvent::DiagnosticsPort(diagnostics_port::Event::Initialize)
+                    ParticipatingEvent::DiagnosticsPort(diagnostics_port::Event::Initialize),
                 ) {
                     return effects;
                 }
@@ -143,7 +152,7 @@ impl Reactor {
                     effect_builder,
                     &mut self.upgrade_watcher,
                     "upgrade_watcher".to_string(),
-                    ParticipatingEvent::UpgradeWatcher(upgrade_watcher::Event::Initialize)
+                    ParticipatingEvent::UpgradeWatcher(upgrade_watcher::Event::Initialize),
                 ) {
                     return effects;
                 }
@@ -151,7 +160,7 @@ impl Reactor {
                     effect_builder,
                     &mut self.event_stream_server,
                     "event_stream_server".to_string(),
-                    ParticipatingEvent::EventStreamServer(event_stream_server::Event::Initialize)
+                    ParticipatingEvent::EventStreamServer(event_stream_server::Event::Initialize),
                 ) {
                     return effects;
                 }
@@ -159,7 +168,7 @@ impl Reactor {
                     effect_builder,
                     &mut self.rest_server,
                     "rest_server".to_string(),
-                    ParticipatingEvent::RestServer(rest_server::Event::Initialize)
+                    ParticipatingEvent::RestServer(rest_server::Event::Initialize),
                 ) {
                     return effects;
                 }
@@ -167,7 +176,7 @@ impl Reactor {
                     effect_builder,
                     &mut self.rpc_server,
                     "rpc_server".to_string(),
-                    ParticipatingEvent::RpcServer(rpc_server::Event::Initialize)
+                    ParticipatingEvent::RpcServer(rpc_server::Event::Initialize),
                 ) {
                     return effects;
                 }
@@ -255,7 +264,6 @@ impl reactor::Reactor for Reactor {
             Some(node_key_pair),
             registry,
             chainspec.as_ref(),
-
         )?;
 
         // let ParticipatingInitConfig {
@@ -288,11 +296,11 @@ impl reactor::Reactor for Reactor {
         //             .maybe_immediate_switch_block_data()
         //             .cloned()
         //         {
-        //             // The outcome of joining in this case caused a new switch block to be created,
-        //             // so we need to emit the effects which would have been created by that
-        //             // execution, but add them to the participating reactor's event queues so they
-        //             // don't get dropped as the joining reactor shuts down.
-        //             effects.extend(
+        //             // The outcome of joining in this case caused a new switch block to be
+        // created,             // so we need to emit the effects which would have been
+        // created by that             // execution, but add them to the participating
+        // reactor's event queues so they             // don't get dropped as the joining
+        // reactor shuts down.             effects.extend(
         //                 effect_builder
         //                     .announce_new_linear_chain_block(block.clone(), execution_results)
         //                     .ignore(),
@@ -306,17 +314,17 @@ impl reactor::Reactor for Reactor {
         //                     effect_builder
         //                         .announce_commit_step_success(
         //                             current_era_id,
-        //                             step_effect_and_upcoming_era_validators.step_execution_journal,
-        //                         )
-        //                         .ignore(),
+        //
+        // step_effect_and_upcoming_era_validators.step_execution_journal,
+        // )                         .ignore(),
         //                 );
         //                 effects.extend(
         //                     effect_builder
         //                         .announce_upcoming_era_validators(
         //                             current_era_id,
-        //                             step_effect_and_upcoming_era_validators.upcoming_era_validators,
-        //                         )
-        //                         .ignore(),
+        //
+        // step_effect_and_upcoming_era_validators.upcoming_era_validators,
+        // )                         .ignore(),
         //                 );
         //             }
 
@@ -343,8 +351,8 @@ impl reactor::Reactor for Reactor {
         //                             }
         //                         };
 
-        //                     // We're responsible for signing the new block if we're in the provided
-        //                     // list.
+        //                     // We're responsible for signing the new block if we're in the
+        // provided                     // list.
         //                     if validator_weights.contains_key(&public_key) {
         //                         let signature = FinalitySignature::create(
         //                             block_hash,

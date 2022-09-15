@@ -1372,7 +1372,8 @@ fn should_get_signed_block_headers_with_metadata() {
 #[test]
 fn should_get_signed_block_headers_with_metadata_when_no_sufficient_finality_in_most_recent_block()
 {
-    // TODO: There's some code duplication with the test `should_get_signed_block_headers_with_metadata`
+    // TODO: There's some code duplication with the test
+    // `should_get_signed_block_headers_with_metadata`
 
     let mut harness = ComponentHarness::default();
     let mut storage = storage_fixture(&harness);

@@ -688,8 +688,8 @@ impl EraSupervisor {
         &mut self,
         effect_builder: EffectBuilder<REv>,
         block_header: BlockHeader,
-        approvals_checksum: Digest,
-        execution_results_checksum: Digest,
+        _approvals_checksum: Digest,
+        _execution_results_checksum: Digest,
     ) -> Effects<Event> {
         let our_public_key = self.public_signing_key.clone();
         let our_secret_key = self.secret_signing_key.clone();

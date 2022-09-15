@@ -47,11 +47,4 @@ impl ChainspecRawBytes {
             None => None,
         }
     }
-
-    pub(crate) fn maybe_global_state_bytes(&self) -> Option<&[u8]> {
-        match self.maybe_global_state_bytes.as_ref() {
-            Some(bytes) => Some(bytes.as_slice()),
-            None => None,
-        }
-    }
 }

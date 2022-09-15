@@ -85,7 +85,7 @@ use crate::{
         BlockHeader, BlockHeaderWithMetadata, BlockHeadersBatch, BlockHeadersBatchId,
         BlockSignatures, BlockWithMetadata, Deploy, DeployHash, DeployMetadata, DeployMetadataExt,
         DeployWithFinalizedApprovals, FetcherItem, FinalitySignature, FinalizedApprovals,
-        FinalizedApprovalsWithId, Item, NodeId, SyncLeap,
+        FinalizedApprovalsWithId, Item, NodeId,
     },
     utils::{display_error, WithDir},
     NodeRng,
@@ -96,7 +96,10 @@ use error::GetRequestError;
 use lmdb_ext::{LmdbExtError, TransactionExt, WriteTransactionExt};
 use object_pool::ObjectPool;
 
-use super::linear_chain::{self, BlockSignatureError};
+use super::{
+    blocks_accumulator::SignaturesFinality,
+    linear_chain::{self, BlockSignatureError},
+};
 
 /// Filename for the LMDB database created by the Storage component.
 const STORAGE_DB_FILENAME: &str = "storage.lmdb";
@@ -279,13 +282,6 @@ where
             Err(err) => fatal!(effect_builder, "storage error: {}", err).ignore(),
         }
     }
-}
-
-// TODO: Copy&Paste from `block_acceptor.rs` - should not be here
-pub enum SignaturesFinality {
-    Sufficient,
-    NotSufficient,
-    BogusValidators(Vec<PublicKey>),
 }
 
 impl Storage {

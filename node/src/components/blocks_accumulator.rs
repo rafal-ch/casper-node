@@ -25,7 +25,7 @@ use error::Error;
 pub(crate) use event::Event;
 
 #[derive(Debug)]
-enum SignaturesFinality {
+pub(crate) enum SignaturesFinality {
     Sufficient,
     NotSufficient,
     BogusValidators(Vec<PublicKey>),
@@ -167,7 +167,11 @@ impl BlocksAccumulator {
             }
             Entry::Occupied(entry) => {
                 let accumulated_block = entry.into_mut();
-                accumulated_block.register_signature(finality_signature);
+                if let Err(_) = accumulated_block.register_signature(finality_signature) {
+                    return effect_builder
+                        .announce_disconnect_from_peer(sender)
+                        .ignore();
+                };
                 accumulated_block
                     .has_sufficient_signatures(self.fault_tolerance_fraction, validator_weights)
             }

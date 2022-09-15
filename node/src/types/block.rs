@@ -10,7 +10,6 @@ use std::{
     error::Error as StdError,
     fmt::{self, Debug, Display, Formatter},
     hash::{Hash, Hasher},
-    iter,
 };
 
 use datasize::DataSize;

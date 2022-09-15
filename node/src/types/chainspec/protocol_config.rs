@@ -1,7 +1,7 @@
 // TODO - remove once schemars stops causing warning.
 #![allow(clippy::field_reassign_with_default)]
 
-use std::{collections::BTreeMap, str::FromStr};
+use std::str::FromStr;
 
 use datasize::DataSize;
 #[cfg(test)]
@@ -12,11 +12,10 @@ use serde::{Deserialize, Serialize};
 use casper_types::testing::TestRng;
 use casper_types::{
     bytesrepr::{self, FromBytes, ToBytes},
-    Key, ProtocolVersion, StoredValue,
+    ProtocolVersion,
 };
 
 use super::{ActivationPoint, GlobalStateUpdate};
-use crate::types::BlockHeader;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, DataSize, Debug)]
 pub struct ProtocolConfig {
@@ -33,25 +32,9 @@ pub struct ProtocolConfig {
 }
 
 impl ProtocolConfig {
-    /// The the mapping of [`Key`]s to [`StoredValue`]s we will use to update global storage in the
-    /// event of an emergency update.
-    pub(crate) fn get_update_mapping(
-        &self,
-    ) -> Result<BTreeMap<Key, StoredValue>, bytesrepr::Error> {
-        let state_update = match &self.global_state_update {
-            Some(GlobalStateUpdate(state_update)) => state_update,
-            None => return Ok(BTreeMap::default()),
-        };
-        let mut update_mapping = BTreeMap::new();
-        for (key, stored_value_bytes) in state_update {
-            let stored_value = bytesrepr::deserialize(stored_value_bytes.clone().into())?;
-            update_mapping.insert(*key, stored_value);
-        }
-        Ok(update_mapping)
-    }
-
     /// Returns whether the block header belongs to the last block before the upgrade to the
     /// current protocol version.
+    #[cfg(any(feature = "testing", test))]
     pub(crate) fn is_last_block_before_activation(&self, block_header: &BlockHeader) -> bool {
         block_header.protocol_version() < self.version
             && block_header.is_switch_block()
