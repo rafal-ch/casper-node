@@ -6,11 +6,7 @@ mod fetched_data;
 mod fetcher_impls;
 mod item_fetcher;
 mod metrics;
-// mod tests;
-#[test]
-fn reenable_tests() {
-    todo!("re-enable tests")
-}
+mod tests;
 
 use std::{collections::HashMap, fmt::Debug, time::Duration};
 
@@ -202,11 +198,6 @@ where
         Err(error @ BlockSignatureError::BogusValidators { .. }) => {
             error!(?error, "bogus validators block signature from storage");
             false
-        }
-        // TODO - make this an error condition once we start using `get_minimal_set_of_signatures`.
-        Err(BlockSignatureError::TooManySignatures { .. }) => {
-            debug!("too many block signatures from storage");
-            true
         }
         Ok(_) => true,
     }

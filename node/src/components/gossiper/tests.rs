@@ -9,6 +9,7 @@ use std::{
 };
 
 use derive_more::From;
+use num_rational::Ratio;
 use prometheus::Registry;
 use rand::Rng;
 use reactor::ReactorEvent;
@@ -35,7 +36,6 @@ use crate::{
     components::{
         contract_runtime::{self, ContractRuntime},
         deploy_acceptor,
-        fake_deploy_acceptor::FakeDeployAcceptor,
         in_memory_network::{self, InMemoryNetwork, NetworkController},
         small_network::GossipedAddress,
         storage::{self, Storage},
@@ -60,7 +60,7 @@ use crate::{
     testing::{
         self,
         network::{Network, NetworkedReactor},
-        ConditionCheckReactor,
+        ConditionCheckReactor, FakeDeployAcceptor,
     },
     types::{Chainspec, ChainspecRawBytes, Deploy, FinalitySignature, NodeId},
     utils::WithDir,
@@ -282,6 +282,7 @@ impl reactor::Reactor for Reactor {
         let storage_withdir = WithDir::new(storage_tempdir.path(), storage_config);
         let storage = Storage::new(
             &storage_withdir,
+            Ratio::new(1, 3),
             None,
             ProtocolVersion::from_parts(1, 0, 0),
             "test",
