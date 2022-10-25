@@ -108,6 +108,25 @@ impl Display for Error {
     }
 }
 
+#[cfg_attr(doc, aquamarine::aquamarine)]
+/// ```mermaid
+/// flowchart TD
+///     Initialized --> HaveBlockHeader
+///     HaveBlockHeader --> HaveWeakFinalitySignatures
+///     HaveWeakFinalitySignatures --> HaveBlock
+///     HaveBlock --> HaveGlobalState
+///     HaveBlock --> HaveStrictFinalitySignatures
+///     HaveBlock --> HaveApprovalsHashes
+///     subgraph when global state needed
+///     HaveGlobalState --> HaveAllExecutionResults
+///     HaveAllExecutionResults --> HaveAllDeploys
+///     HaveApprovalsHashes --> HaveAllDeploys
+///     end
+///     HaveAllExecutionResults --> HaveStrictFinalitySignatures
+///     HaveAllDeploys --> HaveStrictFinalitySignatures
+///     HaveApprovalsHashes --> HaveStrictFinalitySignatures
+///     HaveStrictFinalitySignatures --> Done[Bob's your uncle]
+/// ```
 #[derive(Clone, PartialEq, Eq, DataSize, Debug, derive_more::Display)]
 pub(super) enum BlockAcquisitionState {
     #[display(fmt = "Initialize")]
