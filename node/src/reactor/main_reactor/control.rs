@@ -95,7 +95,10 @@ impl MainReactor {
                 CatchUpInstruction::CommitGenesis => match self.commit_genesis(effect_builder) {
                     Ok(effects) => {
                         info!("CatchUp: switch to Validate at genesis");
-                        self.state = ReactorState::Validate;
+
+                        // TODO[RC]: Currently, all nodes, not only validators, will commit genesis.
+                        // self.state = ReactorState::Validate;
+
                         (Duration::ZERO, effects)
                     }
                     Err(msg) => (
@@ -247,12 +250,12 @@ impl MainReactor {
                             }
                             Ok(None) if self.switch_block.is_none() => {
                                 if let Some(timestamp) = self.is_genesis() {
-                                    let is_validator = self.should_commit_genesis();
-                                    if false == is_validator {
-                                        return CatchUpInstruction::Fatal(
-                                            "CatchUp: only validating nodes may participate in genesis; cannot proceed without trusted hash".to_string(),
-                                        );
-                                    }
+                                    // let is_validator = self.should_commit_genesis();
+                                    // if false == is_validator {
+                                    //     return CatchUpInstruction::Fatal(
+                                    //         "CatchUp: only validating nodes may participate in genesis; cannot proceed without trusted hash".to_string(),
+                                    //     );
+                                    // }
                                     let now = Timestamp::now();
                                     let grace_period =
                                         timestamp.saturating_add(TimeDiff::from_seconds(180));
@@ -1113,18 +1116,19 @@ impl MainReactor {
             return Ok(false);
         }
 
-        match self
-            .chainspec
-            .is_in_modified_validator_set(self.consensus.public_key())
-        {
-            None => match highest_switch_block_header.next_era_validator_weights() {
-                None => Err("switch_block should have next era validator weights".to_string()),
-                Some(next_era_validator_weights) => {
-                    Ok(next_era_validator_weights.contains_key(self.consensus.public_key()))
-                }
-            },
-            Some(is_validator) => Ok(is_validator),
-        }
+        // match self
+        //     .chainspec
+        //     .is_in_modified_validator_set(self.consensus.public_key())
+        // {
+        //     None => match highest_switch_block_header.next_era_validator_weights() {
+        //         None => Err("switch_block should have next era validator weights".to_string()),
+        //         Some(next_era_validator_weights) => {
+        //             Ok(next_era_validator_weights.contains_key(self.consensus.public_key()))
+        //         }
+        //     },
+        //     Some(is_validator) => Ok(is_validator),
+        // }
+        Ok(true)
     }
 
     fn commit_upgrade(
