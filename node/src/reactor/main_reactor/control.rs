@@ -30,7 +30,10 @@ use crate::{
             validate_instruction::ValidateInstruction, MainEvent, MainReactor, ReactorState,
         },
     },
-    types::{ActivationPoint, BlockHash, BlockPayload, FinalizedBlock, Item, SyncLeapIdentifier},
+    types::{
+        ActivationPoint, BlockHash, BlockHeader, BlockPayload, FinalizedBlock, Item,
+        SyncLeapIdentifier,
+    },
     utils::DisplayIter,
     NodeRng,
 };
@@ -1087,25 +1090,8 @@ impl MainReactor {
             "successfully ran genesis"
         );
 
-        let next_block_height = 0;
-        let initial_pre_state = ExecutionPreState::new(
-            next_block_height,
-            post_state_hash,
-            BlockHash::default(),
-            Digest::default(),
-        );
-        self.contract_runtime
-            .set_initial_state(initial_pre_state)
-            .map_err(|err| err.to_string())?;
-
-        let finalized_block = FinalizedBlock::new(
-            BlockPayload::default(),
-            Some(EraReport::default()),
-            genesis_timestamp,
-            EraId::default(),
-            next_block_height,
-            PublicKey::System,
-        );
+        let finalized_block =
+            self.generate_immediate_switch_block_after_genesis(post_state_hash, genesis_timestamp)?;
         Ok(effect_builder
             .enqueue_block_for_execution(finalized_block, vec![])
             .ignore())
@@ -1150,7 +1136,7 @@ impl MainReactor {
             None => {
                 return Err("switch_block should be Some".to_string());
             }
-            Some(header) => header,
+            Some(header) => header.clone(),
         };
 
         match self.chainspec.ee_upgrade_config(
@@ -1168,25 +1154,8 @@ impl MainReactor {
                         "upgrade committed"
                     );
 
-                    let next_block_height = previous_block_header.height() + 1;
-                    let initial_pre_state = ExecutionPreState::new(
-                        next_block_height,
-                        post_state_hash,
-                        previous_block_header.block_hash(),
-                        previous_block_header.accumulated_seed(),
-                    );
-                    self.contract_runtime
-                        .set_initial_state(initial_pre_state)
-                        .map_err(|err| err.to_string())?;
-
-                    let finalized_block = FinalizedBlock::new(
-                        BlockPayload::default(),
-                        Some(EraReport::default()),
-                        previous_block_header.timestamp(),
-                        previous_block_header.next_block_era_id(),
-                        next_block_height,
-                        PublicKey::System,
-                    );
+                    let finalized_block = self
+                        .generate_immediate_switch_block(previous_block_header, post_state_hash)?;
                     Ok(effect_builder
                         .enqueue_block_for_execution(finalized_block, vec![])
                         .ignore())
@@ -1195,6 +1164,58 @@ impl MainReactor {
             },
             Err(msg) => Err(msg),
         }
+    }
+
+    fn generate_immediate_switch_block(
+        &mut self,
+        previous_block_header: BlockHeader,
+        post_state_hash: Digest,
+    ) -> Result<FinalizedBlock, String> {
+        let next_block_height = previous_block_header.height() + 1;
+        let initial_pre_state = ExecutionPreState::new(
+            next_block_height,
+            post_state_hash,
+            previous_block_header.block_hash(),
+            previous_block_header.accumulated_seed(),
+        );
+        self.contract_runtime
+            .set_initial_state(initial_pre_state)
+            .map_err(|err| err.to_string())?;
+        let finalized_block = FinalizedBlock::new(
+            BlockPayload::default(),
+            Some(EraReport::default()),
+            previous_block_header.timestamp(),
+            previous_block_header.next_block_era_id(),
+            next_block_height,
+            PublicKey::System,
+        );
+        Ok(finalized_block)
+    }
+
+    fn generate_immediate_switch_block_after_genesis(
+        &mut self,
+        post_state_hash: Digest,
+        genesis_timestamp: Timestamp,
+    ) -> Result<FinalizedBlock, String> {
+        let next_block_height = 0;
+        let initial_pre_state = ExecutionPreState::new(
+            next_block_height,
+            post_state_hash,
+            BlockHash::default(),
+            Digest::default(),
+        );
+        self.contract_runtime
+            .set_initial_state(initial_pre_state)
+            .map_err(|err| err.to_string())?;
+        let finalized_block = FinalizedBlock::new(
+            BlockPayload::default(),
+            Some(EraReport::default()),
+            genesis_timestamp,
+            EraId::default(),
+            next_block_height,
+            PublicKey::System,
+        );
+        Ok(finalized_block)
     }
 
     fn should_shutdown_for_upgrade(&self) -> bool {
