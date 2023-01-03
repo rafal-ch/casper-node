@@ -154,6 +154,12 @@ impl LeapActivity {
                 best_available: Box::new(best_available),
                 from_peers,
             },
+            // `Unobtainable` means we couldn't download it from any peer so far - don't treat it
+            // as a failure if there are still requests in flight
+            Err(LeapActivityError::Unobtainable(_, _)) if in_flight > 0 => LeapStatus::Awaiting {
+                sync_leap_identifier,
+                in_flight,
+            },
             Err(error) => LeapStatus::Failed {
                 sync_leap_identifier,
                 from_peers: vec![],
@@ -242,10 +248,16 @@ impl SyncLeaper {
             Some(activity) => {
                 let result = activity.status();
                 if result.active() == false {
-                    if matches!(result, LeapStatus::Received { .. }) {
-                        self.metrics
-                            .sync_leap_duration
-                            .observe(activity.leap_start.elapsed().as_secs_f64());
+                    match result {
+                        LeapStatus::Received { .. } | LeapStatus::Failed { .. } => {
+                            self.metrics
+                                .sync_leap_duration
+                                .observe(activity.leap_start.elapsed().as_secs_f64());
+                        }
+                        LeapStatus::Idle | LeapStatus::Awaiting { .. } => {
+                            // should be unreachable
+                            error!(status = %result, ?activity, "sync leaper has inconsistent status");
+                        }
                     }
                     self.leap_activity = None;
                 }
@@ -263,6 +275,7 @@ impl SyncLeaper {
     where
         REv: From<FetcherRequest<SyncLeap>> + Send,
     {
+        info!(%sync_leap_identifier, "registering leap attempt");
         let mut effects = Effects::new();
         if peers_to_ask.is_empty() {
             error!("tried to start fetching a sync leap without peers to ask");

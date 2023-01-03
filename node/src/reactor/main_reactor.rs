@@ -168,6 +168,12 @@ impl reactor::Reactor for MainReactor {
         let (our_secret_key, our_public_key) = config.consensus.load_keys(&root_dir)?;
         let validator_matrix = ValidatorMatrix::new(
             chainspec.core_config.finality_threshold_fraction,
+            chainspec
+                .protocol_config
+                .global_state_update
+                .as_ref()
+                .and_then(|global_state_update| global_state_update.validators.clone()),
+            chainspec.protocol_config.activation_point.era_id(),
             our_secret_key.clone(),
             our_public_key.clone(),
             chainspec.core_config.auction_delay,
@@ -281,6 +287,7 @@ impl reactor::Reactor for MainReactor {
         )?;
         let block_synchronizer = BlockSynchronizer::new(
             config.block_synchronizer,
+            chainspec.core_config.simultaneous_peer_requests,
             validator_matrix.clone(),
             registry,
         )?;
@@ -506,9 +513,6 @@ impl reactor::Reactor for MainReactor {
                         offender,
                         justification: _,
                     } => {
-                        // todo!() - instead of ignoring, should we pass `justification` down to the
-                        // "peer rating" system? Probably, because it'll allow us to add additional
-                        // info to `BlocklistJustification::DishonestPeer` variant.
                         let event = MainEvent::BlockSynchronizer(
                             block_synchronizer::Event::DisconnectFromPeer(**offender),
                         );

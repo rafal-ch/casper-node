@@ -48,12 +48,8 @@ vesting_schedule_period = '13 weeks'
 unbonding_delay = 7
 # Round seigniorage rate represented as a fraction of the total supply.
 #
-# Annual issuance: 2%
-# Minimum block time: 12^12 milliseconds
-# Ticks per year: 31536000000
-#
-# (1+0.02)^((2^12)/31536000000)-1 is expressed as a fractional number below.
-round_seigniorage_rate = [15_959, 6_204_824_582_392]
+# A rate that makes the rewards roughly 0.05% of the initial stake per block under default NCTL settings.
+round_seigniorage_rate = [1, 4_200_000_000_000_000_000]
 # Maximum number of associated keys for a single account.
 max_associated_keys = 100
 # Maximum height of contract runtime call stack.
@@ -130,7 +126,7 @@ local = 390
 # Global operations multiplier.
 global = 390
 # Control flow operations multiplier.
-control_flow = 440
+control_flow = 440000
 # Integer operations multiplier.
 integer_comparison = 250
 # Conversion operations multiplier.
@@ -209,6 +205,7 @@ withdraw_delegator_reward = 10_000
 withdraw_validator_reward = 10_000
 read_era_id = 10_000
 activate_bid = 10_000
+redelegate = 10_000
 
 [system_costs.mint_costs]
 mint = 2_500_000_000
@@ -217,6 +214,7 @@ create = 2_500_000_000
 balance = 10_000
 transfer = 10_000
 read_base_round_reward = 10_000
+mint_into_existing_purse = 2_500_000_000
 
 [system_costs.handle_payment_costs]
 get_payment_purse = 10_000

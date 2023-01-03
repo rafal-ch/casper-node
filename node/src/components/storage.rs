@@ -1308,8 +1308,10 @@ impl Storage {
                 {
                     continue;
                 }
-                // todo!() - right deploy with incorrect approvals found in DB, download and
-                // store deploy with correct approvals
+                // This should be unreachable as the `BlockSynchronizer` should ensure we have the
+                // correct approvals before it then calls this method.  By returning `Ok(None)` the
+                // node would be stalled at this block, but should eventually sync leap due to lack
+                // of progress.  It would then backfill this block without executing it.
                 error!(
                     ?block_hash,
                     "Storage: deploy with incorrect approvals for  {}", block_hash
@@ -1905,10 +1907,24 @@ impl Storage {
                 switch_block = block.block_header.clone();
                 result.push(block);
             } else {
-                return Ok(None);
+                return Ok(Some(result));
             }
         }
-        result.push(highest_signed_block_header.clone());
+
+        let next_era_validator_weights = match switch_block.next_era_validator_weights() {
+            Some(next_era_validator_weights) => next_era_validator_weights,
+            None => return Ok(None),
+        };
+
+        if utils::check_sufficient_block_signatures(
+            next_era_validator_weights,
+            self.fault_tolerance_fraction,
+            Some(&highest_signed_block_header.block_signatures),
+        )
+        .is_ok()
+        {
+            result.push(highest_signed_block_header.clone());
+        }
 
         Ok(Some(result))
     }
@@ -2353,9 +2369,6 @@ impl Storage {
                 .cloned()
                 .unwrap_or_else(|| trusted_block_header.clone()),
         )? {
-            // todo! - protocol version check - should return NotProvided if:
-            //       * signed_block_headers is empty & trusted header is not last before upgrade, or
-            //       * any signed block header is not from current PV
             return Ok(FetchResponse::Fetched(SyncLeap {
                 trusted_ancestor_only: false,
                 trusted_block_header,

@@ -3599,6 +3599,7 @@
               "access_key",
               "disabled_versions",
               "groups",
+              "lock_status",
               "versions"
             ],
             "properties": {
@@ -3622,6 +3623,9 @@
                 "items": {
                   "$ref": "#/components/schemas/Groups"
                 }
+              },
+              "lock_status": {
+                "$ref": "#/components/schemas/ContractPackageStatus"
               }
             },
             "additionalProperties": false
@@ -3689,6 +3693,14 @@
                 }
               }
             }
+          },
+          "ContractPackageStatus": {
+            "description": "A enum to determine the lock status of the contract package.",
+            "type": "string",
+            "enum": [
+              "Locked",
+              "Unlocked"
+            ]
           },
           "WithdrawPurse": {
             "description": "A withdraw purse, a legacy structure.",

@@ -59,7 +59,6 @@ use tracing_futures::Instrument;
 use crate::{
     components::{
         block_accumulator, deploy_acceptor, fetcher,
-        fetcher::FetchResponse,
         network::{blocklist::BlocklistJustification, Identity as NetworkIdentity},
     },
     effect::{
@@ -69,14 +68,14 @@ use crate::{
     },
     types::{
         ApprovalsHashes, Block, BlockExecutionResultsOrChunk, BlockHeader, Chainspec,
-        ChainspecRawBytes, Deploy, DeployId, ExitCode, FetcherItem, FinalitySignature,
-        LegacyDeploy, NodeId, SyncLeap, TrieOrChunk,
+        ChainspecRawBytes, Deploy, ExitCode, FetcherItem, FinalitySignature, LegacyDeploy, NodeId,
+        SyncLeap, TrieOrChunk,
     },
     unregister_metric,
     utils::{
         self,
         rlimit::{Limit, OpenFiles, ResourceLimit},
-        SharedFlag, Source, WeightedRoundRobin,
+        SharedFlag, WeightedRoundRobin,
     },
     NodeRng, TERMINATION_REQUESTED,
 };
@@ -139,15 +138,6 @@ fn adjust_open_files_limit() {
             }
         }
     }
-}
-
-/// The value returned by a reactor on completion of the `run()` loop.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, DataSize)]
-pub(crate) enum ReactorExit {
-    /// The process should exit with the given exit code to allow the launcher to react
-    /// accordingly.
-    /// todo! why do we need a enum to wrap exit code enum?
-    ProcessShouldExit(ExitCode),
 }
 
 /// Event scheduler
@@ -714,26 +704,26 @@ where
 
     /// Runs the reactor until `self.crank` returns `Some` or we get interrupted by a termination
     /// signal.
-    pub(crate) async fn run(&mut self, rng: &mut NodeRng) -> ReactorExit {
+    pub(crate) async fn run(&mut self, rng: &mut NodeRng) -> ExitCode {
         loop {
             match TERMINATION_REQUESTED.load(Ordering::SeqCst) as i32 {
                 0 => {
                     if let Some(exit_code) = self.crank(rng).await {
                         self.is_shutting_down.set();
-                        break ReactorExit::ProcessShouldExit(exit_code);
+                        break exit_code;
                     }
                 }
                 SIGINT => {
                     self.is_shutting_down.set();
-                    break ReactorExit::ProcessShouldExit(ExitCode::SigInt);
+                    break ExitCode::SigInt;
                 }
                 SIGQUIT => {
                     self.is_shutting_down.set();
-                    break ReactorExit::ProcessShouldExit(ExitCode::SigQuit);
+                    break ExitCode::SigQuit;
                 }
                 SIGTERM => {
                     self.is_shutting_down.set();
-                    break ReactorExit::ProcessShouldExit(ExitCode::SigTerm);
+                    break ExitCode::SigTerm;
                 }
                 _ => error!("should be unreachable - bug in signal handler"),
             }
@@ -934,54 +924,13 @@ where
         + From<PeerBehaviorAnnouncement>,
 {
     match message {
-        NetResponse::Deploy(ref serialized_item) => {
-            // Incoming Deploys should be routed to the `DeployAcceptor` rather than directly to the
-            // `DeployFetcher`.
-            let event =
-                match bincode::deserialize::<FetchResponse<Deploy, DeployId>>(serialized_item) {
-                    Ok(FetchResponse::Fetched(deploy)) => {
-                        <R as Reactor>::Event::from(deploy_acceptor::Event::Accept {
-                            deploy: Box::new(deploy),
-                            source: Source::Peer(sender),
-                            maybe_responder: None,
-                        })
-                    }
-                    Ok(FetchResponse::NotFound(deploy_id)) => {
-                        info!(%sender, ?deploy_id, "peer did not have deploy",);
-                        <R as Reactor>::Event::from(fetcher::Event::<Deploy>::AbsentRemotely {
-                            id: deploy_id,
-                            peer: sender,
-                        })
-                    }
-                    Ok(FetchResponse::NotProvided(deploy_id)) => {
-                        warn!(
-                            %sender,
-                            %deploy_id,
-                            "peer refused to provide deploy"
-                        );
-                        return effect_builder
-                            .announce_block_peer_with_justification(
-                                sender,
-                                BlocklistJustification::PeerDidNotProvideADeploy { deploy_id },
-                            )
-                            .ignore();
-                    }
-                    Err(error) => {
-                        warn!(
-                            %sender,
-                            %error,
-                            "received a deploy item we couldn't parse",
-                        );
-                        return effect_builder
-                            .announce_block_peer_with_justification(
-                                sender,
-                                BlocklistJustification::SentBadDeploy { error },
-                            )
-                            .ignore();
-                    }
-                };
-            <R as Reactor>::dispatch_event(reactor, effect_builder, rng, event)
-        }
+        NetResponse::Deploy(ref serialized_item) => handle_fetch_response::<R, Deploy>(
+            reactor,
+            effect_builder,
+            rng,
+            sender,
+            serialized_item,
+        ),
         NetResponse::LegacyDeploy(ref serialized_item) => handle_fetch_response::<R, LegacyDeploy>(
             reactor,
             effect_builder,

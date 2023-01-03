@@ -30,7 +30,7 @@ use casper_hashing::{ChunkWithProof, Digest};
 use casper_types::testing::TestRng;
 use casper_types::{
     bytesrepr::{self, FromBytes, ToBytes},
-    EraId, ProtocolVersion, PublicKey,
+    EraId, ProtocolVersion,
 };
 
 #[cfg(test)]
@@ -171,21 +171,6 @@ impl Chainspec {
             global_state_update,
             chainspec_registry,
         ))
-    }
-
-    /// Returns `Some` if the validator set is being modified by the upgrade (otherwise `None`)
-    /// and `true` if the provided public key is a member of the new set, otherwise `false`.
-    #[allow(unused)] // check w/ Fraser...seems odd that we don't care about this anywhere else
-    pub(crate) fn is_in_modified_validator_set(&self, public_key: &PublicKey) -> Option<bool> {
-        self.protocol_config
-            .global_state_update
-            .as_ref()
-            .and_then(|global_state_update| {
-                if global_state_update.validators.is_empty() {
-                    return None;
-                }
-                Some(global_state_update.validators.contains(public_key))
-            })
     }
 }
 
@@ -421,13 +406,13 @@ mod tests {
             );
             assert!(spec.network_config.accounts_config.accounts().is_empty());
             assert!(spec.protocol_config.global_state_update.is_some());
-            assert!(!spec
+            assert!(spec
                 .protocol_config
                 .global_state_update
                 .as_ref()
                 .unwrap()
                 .validators
-                .is_empty());
+                .is_some());
             for value in spec
                 .protocol_config
                 .global_state_update
@@ -441,7 +426,7 @@ mod tests {
 
         assert_eq!(spec.network_config.name, "test-chain");
 
-        assert_eq!(spec.core_config.era_duration, TimeDiff::from(180000));
+        assert_eq!(spec.core_config.era_duration, TimeDiff::from_seconds(180));
         assert_eq!(spec.core_config.minimum_era_height, 9);
         assert_eq!(
             spec.core_config.finality_threshold_fraction,
@@ -449,7 +434,7 @@ mod tests {
         );
         assert_eq!(
             spec.highway_config.maximum_round_length,
-            TimeDiff::from(525000)
+            TimeDiff::from_seconds(525)
         );
         assert_eq!(
             spec.highway_config.reduced_reward_multiplier,
@@ -460,7 +445,10 @@ mod tests {
             spec.deploy_config.max_payment_cost,
             Motes::new(U512::from(9))
         );
-        assert_eq!(spec.deploy_config.max_ttl, TimeDiff::from(26300160000));
+        assert_eq!(
+            spec.deploy_config.max_ttl,
+            TimeDiff::from_seconds(26_300_160)
+        );
         assert_eq!(spec.deploy_config.max_dependencies, 11);
         assert_eq!(spec.deploy_config.max_block_size, 12);
         assert_eq!(spec.deploy_config.block_max_deploy_count, 125);
@@ -491,12 +479,12 @@ mod tests {
 
         // Minimum block time greater than maximum round length.
         chainspec.core_config.consensus_protocol = ConsensusProtocolName::Highway;
-        chainspec.core_config.minimum_block_time = TimeDiff::from(8);
-        chainspec.highway_config.maximum_round_length = TimeDiff::from(7);
+        chainspec.core_config.minimum_block_time = TimeDiff::from_millis(8);
+        chainspec.highway_config.maximum_round_length = TimeDiff::from_millis(7);
         assert!(!chainspec.is_valid());
 
-        chainspec.core_config.minimum_block_time = TimeDiff::from(7);
-        chainspec.highway_config.maximum_round_length = TimeDiff::from(7);
+        chainspec.core_config.minimum_block_time = TimeDiff::from_millis(7);
+        chainspec.highway_config.maximum_round_length = TimeDiff::from_millis(7);
         assert!(chainspec.is_valid());
     }
 
