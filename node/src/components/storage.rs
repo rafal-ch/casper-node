@@ -2131,6 +2131,7 @@ impl Storage {
         txn: &mut Tx,
         deploy_hash: &DeployHash,
     ) -> Result<Option<DeployMetadata>, FatalStorageError> {
+        warn!("XXXXX - get_deploy_metadata 1");
         Ok(txn.get_value(self.deploy_metadata_db, deploy_hash)?)
     }
 
@@ -2414,12 +2415,15 @@ impl Storage {
         // 3. For every txns in the block's body, we load its deploy metadata.
         // 4. We extract txn's execution results from the `deploy_metadata` for the block
         // we're interested in.
+        warn!("XXXXX - 1");
         let block_header: BlockHeader = match self.get_single_block_header(txn, block_hash)? {
             Some(block_header) => block_header,
             None => return Ok(None),
         };
+        warn!("XXXXX - 2");
         let maybe_block_body =
             get_body_for_block_header(txn, block_header.body_hash(), self.block_body_db);
+        warn!("XXXXX - 3");
         let block_body = match maybe_block_body? {
             Some(block_body) => block_body,
             None => {
@@ -2431,10 +2435,12 @@ impl Storage {
             }
         };
 
+        warn!("XXXXX - 4");
         let mut execution_results = vec![];
         for deploy_hash in block_body.deploy_and_transfer_hashes() {
             match self.get_deploy_metadata(txn, deploy_hash)? {
                 None => {
+                    warn!("XXXXX - 5");
                     debug!(
                         %block_hash,
                         %deploy_hash,
@@ -2443,11 +2449,14 @@ impl Storage {
                     return Ok(None);
                 }
                 Some(mut metadata) => {
+                    warn!("XXXXX - 6");
                     match metadata.execution_results.remove(block_hash) {
                         Some(execution_result) => {
+                            warn!("XXXXX - 7");
                             execution_results.push((*deploy_hash, execution_result));
                         }
                         None => {
+                            warn!("XXXXX - 8");
                             // We have the block, we've got the deploy but its metadata doesn't
                             // include the reference to the block. This is an error b/c even though
                             // types seem to allow for a single deploy map to multiple blocks, it
@@ -2463,6 +2472,7 @@ impl Storage {
                 }
             }
         }
+        warn!("XXXXX - 9");
         Ok(Some(execution_results))
     }
 
@@ -2471,16 +2481,19 @@ impl Storage {
         &self,
         block_hash: &BlockHash,
     ) -> Result<Option<Vec<(DeployHash, DeployHeader, ExecutionResult)>>, FatalStorageError> {
+        warn!("XXXXX - read_execution_results 1");
         let mut txn = self.env.begin_rw_txn()?;
         let execution_results = match self.get_execution_results(&mut txn, block_hash)? {
             Some(execution_results) => execution_results,
             None => return Ok(None),
         };
+        warn!("XXXXX - read_execution_results 2");
 
         let mut ret = Vec::with_capacity(execution_results.len());
         for (deploy_hash, execution_result) in execution_results {
             match txn.get_value::<_, Deploy>(self.deploy_db, &deploy_hash)? {
                 None => {
+                    warn!("XXXXX - read_execution_results 3");
                     error!(
                         %block_hash,
                         %deploy_hash,
@@ -2488,9 +2501,13 @@ impl Storage {
                     );
                     return Ok(None);
                 }
-                Some(deploy) => ret.push((deploy_hash, deploy.take_header(), execution_result)),
+                Some(deploy) => {
+                    warn!("XXXXX - read_execution_results 4");
+                    ret.push((deploy_hash, deploy.take_header(), execution_result));
+                }
             };
         }
+        warn!("XXXXX - read_execution_results 5");
         Ok(Some(ret))
     }
 
@@ -2499,6 +2516,7 @@ impl Storage {
         request: &BlockExecutionResultsOrChunkId,
     ) -> Result<Option<BlockExecutionResultsOrChunk>, FatalStorageError> {
         let mut txn = self.env.begin_rw_txn()?;
+        warn!("XXXXX - read_block_execution_results_or_chunk 1");
         let execution_results = match self.get_execution_results(&mut txn, request.block_hash())? {
             Some(execution_results) => execution_results
                 .into_iter()
@@ -2506,8 +2524,12 @@ impl Storage {
                 .collect(),
             None => return Ok(None),
         };
+        warn!("XXXXX - read_block_execution_results_or_chunk 2");
         let value_or_chunk = match ValueOrChunk::new(execution_results, request.chunk_index()) {
-            Ok(value_or_chunk) => value_or_chunk,
+            Ok(value_or_chunk) => {
+                warn!("XXXXX - read_block_execution_results_or_chunk 3");
+                value_or_chunk
+            }
             Err(error) => {
                 // Failure shouldn't be fatal as the node can continue operating but won't be able
                 // to answer this particular query. We choose to return `None` instead, signaling
@@ -2517,9 +2539,11 @@ impl Storage {
                     ?error,
                     "failed to construct `BlockExecutionResultsOrChunk`"
                 );
+                warn!("XXXXX - read_block_execution_results_or_chunk 4");
                 return Ok(None);
             }
         };
+        warn!("XXXXX - read_block_execution_results_or_chunk 5");
         Ok(Some(request.response(value_or_chunk)))
     }
 
