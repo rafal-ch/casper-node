@@ -1,6 +1,8 @@
 // TODO - remove once schemars stops causing warning.
 #![allow(clippy::field_reassign_with_default)]
 
+use core::mem::MaybeUninit;
+
 use alloc::vec::Vec;
 
 #[cfg(feature = "datasize")]
@@ -35,13 +37,13 @@ pub const VESTING_SCHEDULE_LENGTH_MILLIS: u64 =
 /// 91 days / 7 days in a week = 13 weeks
 const LOCKED_AMOUNTS_LENGTH: usize = (VESTING_SCHEDULE_LENGTH_DAYS / DAYS_IN_WEEK) + 1;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "datasize", derive(DataSize))]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct VestingSchedule {
     initial_release_timestamp_millis: u64,
-    locked_amounts: Option<Vec<U512>>,
+    locked_amounts: Option<[U512; LOCKED_AMOUNTS_LENGTH]>,
 }
 
 fn vesting_schedule_period_to_weeks(vesting_schedule_period_millis: u64) -> u64 {
@@ -76,7 +78,7 @@ impl VestingSchedule {
 
         if locked_amounts_length == 0 || vesting_schedule_period_millis == 0 {
             // Zero weeks means instant unlock of staked amount.
-            self.locked_amounts = Some(vec![U512::zero()]);
+            self.locked_amounts = None;
             return true;
         }
 
@@ -92,7 +94,7 @@ impl VestingSchedule {
         }
         locked_amounts.push(U512::zero());
 
-        self.locked_amounts = Some(locked_amounts);
+        self.locked_amounts = None;
         true
     }
 
@@ -108,7 +110,7 @@ impl VestingSchedule {
     }
 
     pub fn locked_amounts(&self) -> Option<&Vec<U512>> {
-        self.locked_amounts.as_ref()
+        None
     }
 
     pub fn locked_amount(&self, timestamp_millis: u64) -> Option<U512> {
@@ -196,7 +198,7 @@ impl FromBytes for VestingSchedule {
                 bytes,
             )),
             INITIALIZED_14W_FIXED_LOCKED_AMOUNTS_TAG => {
-                let mut locked_amounts = Vec::new();
+                let mut locked_amounts = Vec::<U512>::new();
 
                 for _ in 0..LOCKED_AMOUNTS_LENGTH {
                     let (locked_amount, rem) = FromBytes::from_bytes(bytes)?;
@@ -207,23 +209,58 @@ impl FromBytes for VestingSchedule {
                 Ok((
                     VestingSchedule {
                         initial_release_timestamp_millis,
-                        locked_amounts: Some(locked_amounts),
+                        locked_amounts: None,
                     },
                     bytes,
                 ))
             }
             VARIABLE_LOCKED_AMOUNTS_LENGTH_TAG => {
-                let (locked_amounts, bytes) = FromBytes::from_bytes(bytes)?;
+                let (locked_amounts, bytes): (Vec<U512>, _) = FromBytes::from_bytes(bytes)?;
                 Ok((
                     VestingSchedule {
                         initial_release_timestamp_millis,
-                        locked_amounts: Some(locked_amounts),
+                        locked_amounts: None,
                     },
                     bytes,
                 ))
             }
             _ => Err(bytesrepr::Error::Formatting),
         }
+    }
+}
+
+impl ToBytes for [U512; LOCKED_AMOUNTS_LENGTH] {
+    fn to_bytes(&self) -> Result<Vec<u8>, bytesrepr::Error> {
+        let mut result = bytesrepr::allocate_buffer(self)?;
+        for item in self.iter() {
+            result.append(&mut item.to_bytes()?);
+        }
+        Ok(result)
+    }
+
+    fn serialized_length(&self) -> usize {
+        self.iter().map(ToBytes::serialized_length).sum::<usize>()
+    }
+}
+
+impl FromBytes for [U512; LOCKED_AMOUNTS_LENGTH] {
+    fn from_bytes(mut bytes: &[u8]) -> Result<(Self, &[u8]), bytesrepr::Error> {
+        let mut result: MaybeUninit<[U512; LOCKED_AMOUNTS_LENGTH]> = MaybeUninit::uninit();
+        let result_ptr = result.as_mut_ptr() as *mut U512;
+        for i in 0..LOCKED_AMOUNTS_LENGTH {
+            let (t, remainder) = match FromBytes::from_bytes(bytes) {
+                Ok(success) => success,
+                Err(error) => {
+                    for j in 0..i {
+                        unsafe { result_ptr.add(j).drop_in_place() }
+                    }
+                    return Err(error);
+                }
+            };
+            unsafe { result_ptr.add(i).write(t) };
+            bytes = remainder;
+        }
+        Ok((unsafe { result.assume_init() }, bytes))
     }
 }
 

@@ -72,9 +72,9 @@ pub const MAX_THREAD_COUNT: usize = 512;
 
 fn version_string(color: bool) -> String {
     let mut version = format!(
-        "{}-{}",
+        "{}-VERGEN_WAS_HERE",
         env!("CARGO_PKG_VERSION"),
-        env!("VERGEN_GIT_SHA_SHORT")
+        //env!("VERGEN_GIT_SHA_SHORT")
     );
 
     // Add a `@DEBUG` (or similar) tag to release string on non-release builds.

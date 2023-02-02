@@ -126,8 +126,9 @@ impl Distribution<DeployHash> for Standard {
 }
 
 /// Represents a transfer from one purse to another
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Serialize, Deserialize, Default)]
-#[cfg_attr(feature = "datasize", derive(DataSize))]
+#[derive(
+    Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Serialize, Deserialize, Default, DataSize,
+)]
 #[cfg_attr(feature = "json-schema", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Transfer {

@@ -162,7 +162,7 @@ impl ToBytes for Delegator {
         buffer.extend(self.staked_amount.to_bytes()?);
         buffer.extend(self.bonding_purse.to_bytes()?);
         buffer.extend(self.validator_public_key.to_bytes()?);
-        buffer.extend(self.vesting_schedule.to_bytes()?);
+        //buffer.extend(self.vesting_schedule.to_bytes()?);
         Ok(buffer)
     }
 
@@ -171,7 +171,7 @@ impl ToBytes for Delegator {
             + self.staked_amount.serialized_length()
             + self.bonding_purse.serialized_length()
             + self.validator_public_key.serialized_length()
-            + self.vesting_schedule.serialized_length()
+        //+ self.vesting_schedule.serialized_length()
     }
 
     fn write_bytes(&self, writer: &mut Vec<u8>) -> Result<(), bytesrepr::Error> {
@@ -179,7 +179,7 @@ impl ToBytes for Delegator {
         self.staked_amount.write_bytes(writer)?;
         self.bonding_purse.write_bytes(writer)?;
         self.validator_public_key.write_bytes(writer)?;
-        self.vesting_schedule.write_bytes(writer)?;
+        //self.vesting_schedule.write_bytes(writer)?;
         Ok(())
     }
 }

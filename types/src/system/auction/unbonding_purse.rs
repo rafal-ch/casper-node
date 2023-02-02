@@ -32,8 +32,6 @@ pub struct UnbondingPurse {
     era_of_creation: EraId,
     /// Unbonding Amount.
     amount: U512,
-    /// The validator public key to re-delegate to.
-    new_validator: Option<PublicKey>,
 }
 
 impl UnbondingPurse {
@@ -52,7 +50,7 @@ impl UnbondingPurse {
             unbonder_public_key,
             era_of_creation,
             amount,
-            new_validator,
+            //new_validator,
         }
     }
 
@@ -93,7 +91,7 @@ impl UnbondingPurse {
 
     /// Returns the public key for the new validator.
     pub fn new_validator(&self) -> &Option<PublicKey> {
-        &self.new_validator
+        &None
     }
 }
 
@@ -105,7 +103,7 @@ impl ToBytes for UnbondingPurse {
         result.extend(&self.unbonder_public_key.to_bytes()?);
         result.extend(&self.era_of_creation.to_bytes()?);
         result.extend(&self.amount.to_bytes()?);
-        result.extend(&self.new_validator.to_bytes()?);
+        //result.extend(&self.new_validator.to_bytes()?);
         Ok(result)
     }
     fn serialized_length(&self) -> usize {
@@ -114,7 +112,7 @@ impl ToBytes for UnbondingPurse {
             + self.unbonder_public_key.serialized_length()
             + self.era_of_creation.serialized_length()
             + self.amount.serialized_length()
-            + self.new_validator.serialized_length()
+        //  + self.new_validator.serialized_length()
     }
 
     fn write_bytes(&self, writer: &mut Vec<u8>) -> Result<(), bytesrepr::Error> {
@@ -123,7 +121,7 @@ impl ToBytes for UnbondingPurse {
         self.unbonder_public_key.write_bytes(writer)?;
         self.era_of_creation.write_bytes(writer)?;
         self.amount.write_bytes(writer)?;
-        self.new_validator.write_bytes(writer)?;
+        //self.new_validator.write_bytes(writer)?;
         Ok(())
     }
 }
@@ -144,7 +142,7 @@ impl FromBytes for UnbondingPurse {
                 unbonder_public_key,
                 era_of_creation,
                 amount,
-                new_validator,
+                //      new_validator,
             },
             remainder,
         ))
