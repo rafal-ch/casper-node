@@ -784,6 +784,17 @@ impl reactor::Reactor for MainReactor {
                     finality_signature.public_key,
                     sender
                 );
+
+                if let Some(true) = self
+                    .validator_matrix
+                    .is_validator_in_era(finality_signature.era_id, &finality_signature.public_key)
+                {
+                    effects.extend(reactor::wrap_effects(
+                        MainEvent::Storage,
+                        effect_builder.put_finality_signature_to_storage(finality_signature),
+                    ));
+                }
+
                 let block_accumulator_event = block_accumulator::Event::ReceivedFinalitySignature {
                     finality_signature,
                     sender,
@@ -1250,6 +1261,11 @@ impl MainReactor {
                             finality_signature: Box::new(finality_signature.clone()),
                         },
                     ),
+                ));
+
+                effects.extend(reactor::wrap_effects(
+                    MainEvent::Storage,
+                    effect_builder.put_finality_signature_to_storage(finality_signature),
                 ));
 
                 let era_id = finality_signature.era_id;
