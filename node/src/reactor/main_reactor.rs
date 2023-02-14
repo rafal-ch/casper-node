@@ -234,7 +234,6 @@ impl reactor::Reactor for MainReactor {
         let hard_reset_to_start_of_era = chainspec.hard_reset_to_start_of_era();
         let storage = Storage::new(
             &storage_config,
-            chainspec.core_config.finality_threshold_fraction,
             hard_reset_to_start_of_era,
             protocol_version,
             &chainspec.network_config.name,
@@ -450,9 +449,10 @@ impl reactor::Reactor for MainReactor {
                 self.handle_meta_block(effect_builder, rng, meta_block)
             }
             MainEvent::UnexecutedBlockAnnouncement(UnexecutedBlockAnnouncement(block_height)) => {
+                let only_from_available_block_range = true;
                 if let Ok(Some(block_header)) = self
                     .storage
-                    .read_complete_block_header_by_height(block_height)
+                    .read_block_header_by_height(block_height, only_from_available_block_range)
                 {
                     let block_hash = block_header.block_hash();
                     reactor::wrap_effects(
