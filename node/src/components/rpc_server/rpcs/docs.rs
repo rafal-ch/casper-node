@@ -35,7 +35,7 @@ const DEFINITIONS_PATH: &str = "#/components/schemas/";
 // As per https://spec.open-rpc.org/#service-discovery-method.
 pub(crate) static OPEN_RPC_SCHEMA: Lazy<OpenRpcSchema> = Lazy::new(|| {
     let contact = OpenRpcContactField {
-        name: "CasperLabs".to_string(),
+        name: "Casper Labs".to_string(),
         url: "https://casperlabs.io".to_string(),
     };
     let license = OpenRpcLicenseField {
@@ -494,7 +494,7 @@ mod tests {
 
     fn check_optional_params_fields<T: RpcWithOptionalParams>() -> Vec<SchemaParam> {
         let contact = OpenRpcContactField {
-            name: "CasperLabs".to_string(),
+            name: "Casper Labs".to_string(),
             url: "https://casperlabs.io".to_string(),
         };
         let license = OpenRpcLicenseField {
