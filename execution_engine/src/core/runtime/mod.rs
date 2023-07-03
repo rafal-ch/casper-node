@@ -1080,6 +1080,15 @@ where
             }
         };
 
+        #[cfg(feature = "test-support")]
+        if let wasmi::Error::Trap(Trap::Code(TrapCode::Unreachable)) = &error {
+            if let Some(stack_height) = instance.globals().last() {
+                eprintln!("current stack height = {}", stack_height.get())
+            } else {
+                eprintln!("current stack height unknown");
+            }
+        }
+
         if let Some(host_error) = error.as_host_error() {
             // If the "error" was in fact a trap caused by calling `ret` then
             // this is normal operation and we should return the value captured
@@ -1415,6 +1424,15 @@ where
                 return Ok(runtime.take_host_buffer().unwrap_or(CLValue::from_t(())?));
             }
         };
+
+        #[cfg(feature = "test-support")]
+        if let wasmi::Error::Trap(Trap::Code(TrapCode::Unreachable)) = &error {
+            if let Some(stack_height) = instance.globals().last() {
+                eprintln!("current stack height = {}", stack_height.get())
+            } else {
+                eprintln!("current stack height unknown");
+            }
+        }
 
         if let Some(host_error) = error.as_host_error() {
             // If the "error" was in fact a trap caused by calling `ret` then this is normal
