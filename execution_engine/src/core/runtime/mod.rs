@@ -1081,7 +1081,7 @@ where
         };
 
         #[cfg(feature = "test-support")]
-        self.dump_runtime_debug_info(&error, instance);
+        self.dump_runtime_debug_info(&error, instance, &self.stack);
 
         if let Some(host_error) = error.as_host_error() {
             // If the "error" was in fact a trap caused by calling `ret` then
@@ -1420,7 +1420,7 @@ where
         };
 
         #[cfg(feature = "test-support")]
-        self.dump_runtime_debug_info(&error, instance);
+        self.dump_runtime_debug_info(&error, instance, &runtime.stack);
 
         if let Some(host_error) = error.as_host_error() {
             // If the "error" was in fact a trap caused by calling `ret` then this is normal
@@ -2961,14 +2961,19 @@ where
     }
 
     #[cfg(feature = "test-support")]
-    fn dump_runtime_debug_info(&self, error: &wasmi::Error, instance: wasmi::ModuleRef) {
+    fn dump_runtime_debug_info(
+        &self,
+        error: &wasmi::Error,
+        instance: wasmi::ModuleRef,
+        runtime_stack: &Option<RuntimeStack>,
+    ) {
         eprintln!("Wasm execution error: {}", error);
         if let Some(stack_height) = instance.globals().last() {
             eprintln!("current_wasm_instance_stack_height={}", stack_height.get())
         } else {
             eprintln!("current_wasm_instance_stack_height=unknown");
         }
-        if let Some(stack) = &self.stack {
+        if let Some(stack) = &runtime_stack {
             eprintln!("{}", stack);
         } else {
             eprintln!("runtime_stack=unknown");
