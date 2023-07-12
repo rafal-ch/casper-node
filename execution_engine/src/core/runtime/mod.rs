@@ -2925,15 +2925,21 @@ where
 #[cfg(feature = "test-support")]
 fn dump_debug_info(error: &wasmi::Error, instance: wasmi::ModuleRef) {
     // Currently, we're only interested in the details for the `Unreachable` error.
-    if let wasmi::Error::Trap(Trap::Code(TrapCode::Unreachable)) = error {
-        eprintln!("Wasm execution error: TrapCode::Unreachable");
-        eprintln!(
-            "current instance stack height = {}",
-            if let Some(stack_height) = instance.globals().last() {
-                stack_height.get().to_string()
-            } else {
-                "unknown".to_string()
+    match error {
+        wasmi::Error::Trap(trap) => match trap.kind() {
+            TrapKind::Unreachable => {
+                eprintln!("Wasm execution error: TrapCode::Unreachable");
+                eprintln!(
+                    "current instance stack height = {}",
+                    if let Some(stack_height) = instance.globals().last() {
+                        format!("{:?}", stack_height.get())
+                    } else {
+                        "unknown".to_string()
+                    }
+                );
             }
-        );
+            _ => (),
+        },
+        _ => (),
     }
 }
