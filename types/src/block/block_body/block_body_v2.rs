@@ -36,7 +36,9 @@ pub struct BlockBodyV2 {
 
 impl BlockBodyV2 {
     /// Constructs a new `BlockBody`.
-    pub(crate) fn new(
+    // TODO[RC]: This should be reverted to pub(crate) after the "hack" in block synchronizer is
+    // dealt with.
+    pub fn new(
         proposer: PublicKey,
         deploy_hashes: Vec<DeployHash>,
         transfer_hashes: Vec<DeployHash>,

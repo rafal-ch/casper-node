@@ -17,7 +17,7 @@ mod trie_accumulator;
 #[cfg(test)]
 mod tests;
 
-use std::{convert::TryFrom, sync::Arc};
+use std::sync::Arc;
 
 use datasize::DataSize;
 use either::Either;
@@ -30,8 +30,8 @@ use tracing::{debug, error, info, trace, warn};
 
 use casper_execution_engine::engine_state;
 use casper_types::{
-    Block, BlockHash, BlockHeader, BlockSignatures, BlockV2, Chainspec, Deploy, Digest,
-    FinalitySignature, FinalitySignatureId, Timestamp,
+    Block, BlockBodyV2, BlockHash, BlockHeader, BlockSignatures, BlockV2, Chainspec, Deploy,
+    Digest, FinalitySignature, FinalitySignatureId, Timestamp,
 };
 
 use super::network::blocklist::BlocklistJustification;
@@ -477,6 +477,7 @@ impl BlockSynchronizer {
                             .get_execution_results_from_storage(*block.hash())
                             .then(move |maybe_execution_results| async move {
                                 match maybe_execution_results {
+                                    /*
                                     Some(execution_results) => match BlockV2::try_from(*block) {
                                         Ok(block) => {
                                             let meta_block = MetaBlock::new(
@@ -488,6 +489,47 @@ impl BlockSynchronizer {
                                         }
                                         Err(_) => todo!(),
                                     },
+                                    */
+                                    // TODO[RC]: The code below is a temporary hack until the work
+                                    // on `MetaBlock` is finished and the commented todo!() above is
+                                    // properly handled. See: https://github.com/casper-network/casper-node/compare/feat-data-extensibility...alsrdn:casper-node:meta-block-refactor-for-versioned-block
+                                    // It "converts" the BlockV1 into BlockV2, which can be used in
+                                    // `MetaBlock`. In the final version we will not support such
+                                    // conversion.
+                                    Some(execution_results) => match *block {
+                                        Block::V1(v1) => {
+                                            let header = v1.header().clone();
+                                            let body = v1.body().clone();
+                                            let proposer = body.proposer().clone();
+                                            let deploy_hashes: Vec<_> =
+                                                body.deploy_hashes().to_vec();
+                                            let transfer_hashes = body.transfer_hashes().to_vec();
+
+                                            let body_v2: BlockBodyV2 = BlockBodyV2::new(
+                                                proposer,
+                                                deploy_hashes,
+                                                transfer_hashes,
+                                            );
+                                            let v2: BlockV2 =
+                                                BlockV2::new_from_header_and_body(header, body_v2);
+
+                                            let meta_block = MetaBlock::new(
+                                                Arc::new(v2),
+                                                execution_results,
+                                                MetaBlockState::new_after_historical_sync(),
+                                            );
+                                            effect_builder.announce_meta_block(meta_block).await
+                                        }
+                                        Block::V2(v2) => {
+                                            let meta_block = MetaBlock::new(
+                                                Arc::new(v2),
+                                                execution_results,
+                                                MetaBlockState::new_after_historical_sync(),
+                                            );
+                                            effect_builder.announce_meta_block(meta_block).await
+                                        }
+                                    },
+                                    // TODO[RC]: This is the end of the hack
                                     None => {
                                         error!(
                                             "should have execution results for {}",
