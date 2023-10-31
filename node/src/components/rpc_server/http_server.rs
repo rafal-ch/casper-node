@@ -10,6 +10,7 @@ use super::{
             GetBlock, GetBlockTransfers, GetEraInfoBySwitchBlock, GetEraSummary, GetStateRootHash,
         },
         docs::ListRpcs,
+        foo::Foo,
         info::{GetChainspec, GetDeploy, GetPeers, GetStatus, GetValidatorChanges},
         state::{
             GetAccountInfo, GetAuctionInfo, GetBalance, GetDictionaryItem, GetItem, GetTrie,
@@ -39,6 +40,7 @@ pub(super) async fn run<REv: ReactorEventT>(
     PutDeploy::register_as_handler(effect_builder, api_version, &mut handlers);
     PutTransaction::register_as_handler(effect_builder, api_version, &mut handlers);
     GetBlock::register_as_handler(effect_builder, api_version, &mut handlers);
+    Foo::register_as_handler(effect_builder, api_version, &mut handlers);
     GetBlockTransfers::register_as_handler(effect_builder, api_version, &mut handlers);
     GetStateRootHash::register_as_handler(effect_builder, api_version, &mut handlers);
     GetItem::register_as_handler(effect_builder, api_version, &mut handlers);

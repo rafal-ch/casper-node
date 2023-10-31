@@ -7,6 +7,7 @@ pub mod chain;
 mod common;
 pub mod docs;
 mod error_code;
+pub mod foo;
 pub mod info;
 pub mod speculative_exec;
 pub mod state;
