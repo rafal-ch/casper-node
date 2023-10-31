@@ -2,7 +2,10 @@
 
 use async_trait::async_trait;
 use casper_json_rpc::Error;
-use casper_types::ProtocolVersion;
+use casper_types::{
+    bytesrepr::{self, FromBytes},
+    BlockHash, ProtocolVersion,
+};
 use once_cell::sync::Lazy;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -12,16 +15,20 @@ use crate::{components::rpc_server::ReactorEventT, effect::EffectBuilder};
 use super::{docs::DocExample, RpcWithParams};
 
 static FOO_PARAMS: Lazy<FooParams> = Lazy::new(|| FooParams {
-    kind: Kind::GetBlockBody,
+    kind: RequestKind::GetBlockBody,
     payload: vec![],
 });
-static FOO_RESULT: Lazy<FooResult> = Lazy::new(|| FooResult { number: 321 });
+static FOO_RESULT: Lazy<FooResult> = Lazy::new(|| FooResult {
+    kind: ResultKind::Ok,
+});
 
 /// Kind of the request.
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
-pub enum Kind {
-    /// Returns the BlockBody. Payload is expected to be the serialized hash of the block.
+pub enum RequestKind {
+    /// Returns the `BlockBody`. Payload is expected to be the serialized body hash.
     GetBlockBody = 1,
+    /// Returns the `BlockHeader`. Payload is expected to be the serialized hash of the block.
+    GetBlockHeader = 2,
 }
 
 /// Params for "foo" RPC request.
@@ -29,7 +36,7 @@ pub enum Kind {
 #[serde(deny_unknown_fields)]
 pub struct FooParams {
     /// The request kind.
-    pub kind: Kind,
+    pub kind: RequestKind,
     /// The request payload.
     pub payload: Vec<u8>,
 }
@@ -40,12 +47,20 @@ impl DocExample for FooParams {
     }
 }
 
+/// Kind of the response.
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub enum ResultKind {
+    /// Request was executed correctly.
+    Ok = 1,
+    /// There was an error executing request.
+    Error = 2,
+}
+
 /// Result for "foo" RPC response.
 #[derive(PartialEq, Eq, Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct FooResult {
-    /// The other number.
-    pub number: usize,
+    kind: ResultKind,
 }
 
 impl DocExample for FooResult {
@@ -71,8 +86,16 @@ impl RpcWithParams for Foo {
     ) -> Result<Self::ResponseResult, Error> {
         let kind = params.kind;
         match kind {
-            Kind::GetBlockBody => (),
+            RequestKind::GetBlockBody => (),
+            RequestKind::GetBlockHeader => {
+                let maybe_block_hash: Result<BlockHash, bytesrepr::Error> =
+                    BlockHash::from_bytes(params.payload.as_slice());
+
+                //.map_err(|bytesrepr_error| Error::new(-32602, bytesrepr_error.to_string()))?;
+            }
         };
-        Ok(FooResult { number: 888 })
+        Ok(FooResult {
+            kind: ResultKind::Error,
+        })
     }
 }
