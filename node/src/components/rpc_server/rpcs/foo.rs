@@ -11,15 +11,27 @@ use crate::{components::rpc_server::ReactorEventT, effect::EffectBuilder};
 
 use super::{docs::DocExample, RpcWithParams};
 
-static FOO_PARAMS: Lazy<FooParams> = Lazy::new(|| FooParams { number: 123 });
+static FOO_PARAMS: Lazy<FooParams> = Lazy::new(|| FooParams {
+    kind: Kind::GetBlockBody,
+    payload: vec![],
+});
 static FOO_RESULT: Lazy<FooResult> = Lazy::new(|| FooResult { number: 321 });
+
+/// Kind of the request.
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub enum Kind {
+    /// Returns the BlockBody. Payload is expected to be the serialized hash of the block.
+    GetBlockBody = 1,
+}
 
 /// Params for "foo" RPC request.
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct FooParams {
-    /// The number.
-    pub number: usize,
+    /// The request kind.
+    pub kind: Kind,
+    /// The request payload.
+    pub payload: Vec<u8>,
 }
 
 impl DocExample for FooParams {
@@ -55,8 +67,12 @@ impl RpcWithParams for Foo {
     async fn do_handle_request<REv: ReactorEventT>(
         _effect_builder: EffectBuilder<REv>,
         _api_version: ProtocolVersion,
-        _params: Self::RequestParams,
+        params: Self::RequestParams,
     ) -> Result<Self::ResponseResult, Error> {
+        let kind = params.kind;
+        match kind {
+            Kind::GetBlockBody => (),
+        };
         Ok(FooResult { number: 888 })
     }
 }
