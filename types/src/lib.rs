@@ -26,6 +26,7 @@ mod access_rights;
 pub mod account;
 pub mod addressable_entity;
 pub mod api_error;
+mod auction_state;
 mod block;
 mod block_time;
 mod byte_code;
@@ -68,6 +69,7 @@ mod transfer;
 mod transfer_result;
 mod uint;
 mod uref;
+mod validator_change;
 
 #[cfg(feature = "std")]
 use libc::{c_long, sysconf, _SC_PAGESIZE};
@@ -88,15 +90,16 @@ pub use api_error::ApiError;
 #[cfg(all(feature = "std", feature = "json-schema"))]
 pub use block::JsonBlockWithSignatures;
 pub use block::{
-    Block, BlockBody, BlockBodyV1, BlockBodyV2, BlockHash, BlockHashAndHeight, BlockHeader,
-    BlockHeaderV1, BlockHeaderV2, BlockSignatures, BlockSignaturesMergeError, BlockV1, BlockV2,
-    BlockValidationError, EraEnd, EraEndV1, EraEndV2, EraReport, FinalitySignature,
-    FinalitySignatureId, RewardedSignatures, Rewards, SignedBlockHeader,
+    AvailableBlockRange, Block, BlockBody, BlockBodyV1, BlockBodyV2, BlockHash, BlockHashAndHeight,
+    BlockHeader, BlockHeaderV1, BlockHeaderV2, BlockSignatures, BlockSignaturesMergeError, BlockV1,
+    BlockV2, BlockValidationError, EraEnd, EraEndV1, EraEndV2, EraReport, FinalitySignature,
+    FinalitySignatureId, RewardedSignatures, Rewards, SignedBlock, SignedBlockHeader,
     SignedBlockHeaderValidationError, SingleBlockRewardedSignatures,
 };
 #[cfg(any(feature = "testing", test))]
 pub use block::{TestBlockBuilder, TestBlockV1Builder};
 
+pub use auction_state::{AuctionState, JsonEraValidators, JsonValidatorWeights};
 pub use block_time::{BlockTime, BLOCKTIME_SERIALIZED_LENGTH};
 pub use byte_code::{ByteCode, ByteCodeHash, ByteCodeKind};
 #[cfg(any(feature = "std", test))]
@@ -187,6 +190,7 @@ pub use transfer_result::{TransferResult, TransferredTo};
 pub use uref::{
     FromStrError as URefFromStrError, URef, URefAddr, UREF_ADDR_LENGTH, UREF_SERIALIZED_LENGTH,
 };
+pub use validator_change::ValidatorChange;
 
 /// OS page size.
 #[cfg(feature = "std")]
