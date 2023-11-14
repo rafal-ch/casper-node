@@ -75,10 +75,11 @@ use casper_types::{
     execution::{
         execution_result_v1, ExecutionResult, ExecutionResultV1, ExecutionResultV2, TransformKind,
     },
-    Block, BlockBody, BlockHash, BlockHashAndHeight, BlockHeader, BlockSignatures, BlockV2, DbId,
-    DeployApprovalsHash, DeployHash, DeployHeader, Digest, EraId, FinalitySignature,
-    ProtocolVersion, PublicKey, SignedBlockHeader, StoredValue, Timestamp, Transaction,
-    TransactionApprovalsHash, TransactionHash, TransactionId, TransactionV1ApprovalsHash, Transfer,
+    AvailableBlockRange, Block, BlockBody, BlockHash, BlockHashAndHeight, BlockHeader,
+    BlockSignatures, BlockV2, DeployApprovalsHash, DeployHash, DeployHeader, Digest, EraId,
+    FinalitySignature, ProtocolVersion, PublicKey, SignedBlock, SignedBlockHeader, StoredValue,
+    Timestamp, Transaction, TransactionApprovalsHash, TransactionHash, TransactionId,
+    TransactionV1ApprovalsHash, Transfer,
 };
 
 use crate::{
@@ -95,10 +96,10 @@ use crate::{
     fatal,
     protocol::Message,
     types::{
-        ApprovalsHashes, AvailableBlockRange, BlockExecutionResultsOrChunk,
-        BlockExecutionResultsOrChunkId, BlockWithMetadata, ExecutableBlock, ExecutionInfo,
-        FinalizedApprovals, LegacyDeploy, MaxTtl, NodeId, NodeRng, SignedBlock, SyncLeap,
-        SyncLeapIdentifier, TransactionWithFinalizedApprovals, VariantMismatch,
+        ApprovalsHashes, BlockExecutionResultsOrChunk, BlockExecutionResultsOrChunkId,
+        BlockWithMetadata, ExecutableBlock, ExecutionInfo, FinalizedApprovals, LegacyDeploy,
+        MaxTtl, NodeId, NodeRng, SyncLeap, SyncLeapIdentifier, TransactionWithFinalizedApprovals,
+        VariantMismatch,
     },
     utils::{display_error, WithDir},
 };
@@ -957,10 +958,7 @@ impl Storage {
                     return Ok(responder.respond(None).ignore());
                 }
                 responder
-                    .respond(Some(SignedBlock {
-                        block,
-                        block_signatures,
-                    }))
+                    .respond(Some(SignedBlock::new(block, block_signatures)))
                     .ignore()
             }
             StorageRequest::GetFinalitySignature { id, responder } => {
@@ -1035,10 +1033,7 @@ impl Storage {
                     None => BlockSignatures::new(*hash, block.era_id()),
                 };
                 responder
-                    .respond(Some(SignedBlock {
-                        block,
-                        block_signatures,
-                    }))
+                    .respond(Some(SignedBlock::new(block, block_signatures)))
                     .ignore()
             }
             StorageRequest::GetHighestSignedBlock {
@@ -1065,10 +1060,7 @@ impl Storage {
                     None => BlockSignatures::new(*hash, highest_block.era_id()),
                 };
                 responder
-                    .respond(Some(SignedBlock {
-                        block: highest_block,
-                        block_signatures,
-                    }))
+                    .respond(Some(SignedBlock::new(highest_block, block_signatures)))
                     .ignore()
             }
             StorageRequest::PutBlockSignatures {
@@ -1750,10 +1742,7 @@ impl Storage {
                 debug!(height, "no block signatures stored for block");
                 return Ok(None);
             };
-        Ok(Some(SignedBlock {
-            block,
-            block_signatures,
-        }))
+        Ok(Some(SignedBlock::new(block, block_signatures)))
     }
 
     /// Retrieves single block and all of its deploys, with the finalized approvals.

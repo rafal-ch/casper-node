@@ -19,11 +19,11 @@ use casper_types::{
     generate_ed25519_keypair,
     system::auction::UnbondingPurse,
     testing::TestRng,
-    AccessRights, Block, BlockHash, BlockHashAndHeight, BlockHeader, BlockSignatures, BlockV2,
-    Chainspec, ChainspecRawBytes, Deploy, DeployApprovalsHash, DeployHash, Digest, EraId,
-    FinalitySignature, ProtocolVersion, PublicKey, SecretKey, SignedBlockHeader, TestBlockBuilder,
-    TestBlockV1Builder, TimeDiff, Transaction, TransactionApprovalsHash, TransactionHash, Transfer,
-    URef, U512,
+    AccessRights, AvailableBlockRange, Block, BlockHash, BlockHashAndHeight, BlockHeader,
+    BlockSignatures, BlockV2, Chainspec, ChainspecRawBytes, Deploy, DeployApprovalsHash,
+    DeployHash, Digest, EraId, FinalitySignature, ProtocolVersion, PublicKey, SecretKey,
+    SignedBlockHeader, TestBlockBuilder, TestBlockV1Builder, TimeDiff, Transaction,
+    TransactionApprovalsHash, TransactionHash, Transfer, URef, U512,
 };
 use tempfile::tempdir;
 
@@ -43,9 +43,8 @@ use crate::{
     },
     testing::{ComponentHarness, UnitTestEvent},
     types::{
-        sync_leap_validation_metadata::SyncLeapValidationMetaData, ApprovalsHashes,
-        AvailableBlockRange, ExecutionInfo, LegacyDeploy, SignedBlock, SyncLeapIdentifier,
-        TransactionWithFinalizedApprovals,
+        sync_leap_validation_metadata::SyncLeapValidationMetaData, ApprovalsHashes, ExecutionInfo,
+        LegacyDeploy, SignedBlock, SyncLeapIdentifier, TransactionWithFinalizedApprovals,
     },
     utils::{Loadable, WithDir},
 };
