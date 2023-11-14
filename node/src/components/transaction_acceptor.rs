@@ -15,8 +15,9 @@ use casper_types::{
     account::AccountHash, addressable_entity::AddressableEntity, contracts::ContractHash,
     package::Package, system::auction::ARG_AMOUNT, AddressableEntityHash, BlockHeader, Chainspec,
     DirectCallV1, EntityIdentifier, EntityVersion, EntityVersionKey, ExecutableDeployItem,
-    ExecutableDeployItemIdentifier, Key, PackageHash, PackageIdentifier, ProtocolVersion,
-    Transaction, TransactionConfig, TransactionV1Kind, UserlandTransactionV1, U512,
+    ExecutableDeployItemIdentifier, FinalizedApprovals, Key, PackageHash, PackageIdentifier,
+    ProtocolVersion, Transaction, TransactionConfig, TransactionV1Kind, UserlandTransactionV1,
+    U512,
 };
 
 use crate::{
@@ -27,7 +28,6 @@ use crate::{
         EffectBuilder, EffectExt, Effects, Responder,
     },
     fatal,
-    types::FinalizedApprovals,
     utils::Source,
     NodeRng,
 };

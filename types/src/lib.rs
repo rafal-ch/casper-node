@@ -181,7 +181,8 @@ pub use transaction::{
 };
 #[cfg(any(feature = "std", test))]
 pub use transaction::{
-    DeployBuilder, DeployBuilderError, TransactionV1Builder, TransactionV1BuilderError,
+    DeployBuilder, DeployBuilderError, ExecutionInfo, FinalizedApprovals, FinalizedDeployApprovals,
+    FinalizedTransactionV1Approvals, TransactionV1Builder, TransactionV1BuilderError,
 };
 pub use transfer::{
     FromStrError as TransferFromStrError, Transfer, TransferAddr, TRANSFER_ADDR_LENGTH,

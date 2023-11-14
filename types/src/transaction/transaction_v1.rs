@@ -1,6 +1,7 @@
 mod auction_transaction_v1;
 mod direct_call_v1;
 mod errors_v1;
+mod finalized_transaction_v1_approvals;
 mod native_transaction_v1;
 mod pricing_mode_v1;
 #[cfg(any(all(feature = "std", feature = "testing"), test))]
@@ -49,6 +50,7 @@ pub use errors_v1::{
     DecodeFromJsonErrorV1 as TransactionV1DecodeFromJsonError, ErrorV1 as TransactionV1Error,
     ExcessiveSizeErrorV1 as TransactionV1ExcessiveSizeError, TransactionV1ConfigFailure,
 };
+pub use finalized_transaction_v1_approvals::FinalizedTransactionV1Approvals;
 pub use native_transaction_v1::NativeTransactionV1;
 pub use pricing_mode_v1::PricingModeV1;
 #[cfg(any(all(feature = "std", feature = "testing"), test))]

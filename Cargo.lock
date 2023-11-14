@@ -689,6 +689,7 @@ dependencies = [
  "datasize",
  "http",
  "hyper",
+ "juliet",
  "num_cpus",
  "once_cell",
  "schemars",
@@ -3276,6 +3277,7 @@ dependencies = [
 [[package]]
 name = "juliet"
 version = "0.1.0"
+source = "git+https://github.com/casper-network/casper-node?branch=feat-1.6#70c7484693935122517aefda176bc0c7e6d6ec02"
 dependencies = [
  "array-init",
  "bimap",
