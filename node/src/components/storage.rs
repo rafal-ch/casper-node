@@ -76,7 +76,7 @@ use casper_types::{
         execution_result_v1, ExecutionResult, ExecutionResultV1, ExecutionResultV2, TransformKind,
     },
     AvailableBlockRange, Block, BlockBody, BlockHash, BlockHashAndHeight, BlockHeader,
-    BlockSignatures, BlockV2, DeployApprovalsHash, DeployHash, DeployHeader, Digest, EraId,
+    BlockSignatures, BlockV2, DbId, DeployApprovalsHash, DeployHash, DeployHeader, Digest, EraId,
     FinalitySignature, ProtocolVersion, PublicKey, SignedBlock, SignedBlockHeader, StoredValue,
     Timestamp, Transaction, TransactionApprovalsHash, TransactionHash, TransactionId,
     TransactionV1ApprovalsHash, Transfer,

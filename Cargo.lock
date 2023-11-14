@@ -696,7 +696,7 @@ dependencies = [
  "structopt",
  "thiserror",
  "tokio",
- "toml",
+ "toml 0.5.11",
  "tower",
  "tracing",
  "tracing-subscriber",

@@ -34,7 +34,7 @@ use casper_types::{
     AvailableBlockRange, Block, BlockHash, BlockHeader, BlockSignatures, BlockV2,
     ChainspecRawBytes, DeployHash, DeployHeader, Digest, DisplayIter, EraId, FinalitySignature,
     FinalitySignatureId, Key, ProtocolVersion, PublicKey, SignedBlock, TimeDiff, Timestamp,
-    Transaction, TransactionHash, TransactionId, Transfer, URef, U512,
+    Transaction, TransactionHash, TransactionId, Transfer, URef, U512, DbId,
 };
 
 use super::{AutoClosingResponder, GossipTarget, Responder};

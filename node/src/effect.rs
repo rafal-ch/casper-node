@@ -127,7 +127,7 @@ use casper_types::{
     package::Package,
     system::auction::EraValidators,
     AddressableEntity, AvailableBlockRange, Block, BlockHash, BlockHeader, BlockSignatures,
-    BlockV2, ChainspecRawBytes, DeployHash, DeployHeader, Digest, EraId, FinalitySignature,
+    BlockV2, ChainspecRawBytes, DbId, DeployHash, DeployHeader, Digest, EraId, FinalitySignature,
     FinalitySignatureId, Key, PublicKey, SignedBlock, TimeDiff, Timestamp, Transaction,
     TransactionHash, TransactionId, Transfer, U512,
 };
