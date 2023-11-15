@@ -13,7 +13,7 @@ default-run = "casper-node"
 exclude = ["proptest-regressions"]
 
 [dependencies]
-juliet =  { git = "https://github.com/casper-network/casper-node", branch = "feat-1.6" }
+juliet =  { git = "https://github.com/casper-network/casper-node", rev = "833e669b583edf7d89fb702555ad4041d25a8673" }
 ansi_term = "0.12.1"
 anyhow = "1"
 aquamarine = "0.1.12"
