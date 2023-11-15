@@ -32,9 +32,9 @@ use casper_types::{
     execution::{ExecutionResult, ExecutionResultV2},
     system::auction::EraValidators,
     AvailableBlockRange, Block, BlockHash, BlockHeader, BlockSignatures, BlockV2,
-    ChainspecRawBytes, DeployHash, DeployHeader, Digest, DisplayIter, EraId, FinalitySignature,
-    FinalitySignatureId, Key, ProtocolVersion, PublicKey, SignedBlock, TimeDiff, Timestamp,
-    Transaction, TransactionHash, TransactionId, Transfer, URef, U512, DbId,
+    ChainspecRawBytes, DbId, DeployHash, DeployHeader, Digest, DisplayIter, EraId,
+    FinalitySignature, FinalitySignatureId, Key, ProtocolVersion, PublicKey, SignedBlock, TimeDiff,
+    Timestamp, Transaction, TransactionHash, TransactionId, Transfer, URef, U512,
 };
 
 use super::{AutoClosingResponder, GossipTarget, Responder};
@@ -676,7 +676,11 @@ impl Display for StorageRequest {
                 )
             }
             // TODO[RC]: Possibly clean up formatting
-            StorageRequest::GetRawData { key, responder, db } => {
+            StorageRequest::GetRawData {
+                key,
+                responder: _responder,
+                db,
+            } => {
                 write!(formatter, "get raw data {}::{:?}", db, key)
             }
         }
