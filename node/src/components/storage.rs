@@ -1224,6 +1224,14 @@ impl Storage {
                 )?;
                 responder.respond(maybe_raw_data).ignore()
             }
+            StorageRequest::GetBlockHashAndHeightForTransaction {
+                transaction_hash,
+                responder,
+            } => {
+                let block_hash_and_height =
+                    self.transaction_hash_index.get(&transaction_hash).copied();
+                responder.respond(block_hash_and_height).ignore()
+            }
         })
     }
 

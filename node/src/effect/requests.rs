@@ -31,8 +31,8 @@ use casper_types::{
     contract_messages::Messages,
     execution::{ExecutionResult, ExecutionResultV2},
     system::auction::EraValidators,
-    AvailableBlockRange, Block, BlockHash, BlockHeader, BlockSignatures, BlockV2,
-    ChainspecRawBytes, DbId, DeployHash, DeployHeader, Digest, DisplayIter, EraId,
+    AvailableBlockRange, Block, BlockHash, BlockHashAndHeight, BlockHeader, BlockSignatures,
+    BlockV2, ChainspecRawBytes, DbId, DeployHash, DeployHeader, Digest, DisplayIter, EraId,
     FinalitySignature, FinalitySignatureId, Key, ProtocolVersion, PublicKey, SignedBlock, TimeDiff,
     Timestamp, Transaction, TransactionHash, TransactionId, Transfer, URef, U512,
 };
@@ -521,6 +521,11 @@ pub(crate) enum StorageRequest {
     },
     /// Retrieve the height of the final block of the previous protocol version, if known.
     GetKeyBlockHeightForActivationPoint { responder: Responder<Option<u64>> },
+    /// Retrieve block hash and height for a given transaction.
+    GetBlockHashAndHeightForTransaction {
+        transaction_hash: TransactionHash,
+        responder: Responder<Option<BlockHashAndHeight>>,
+    },
 }
 
 impl Display for StorageRequest {
@@ -682,6 +687,16 @@ impl Display for StorageRequest {
                 db,
             } => {
                 write!(formatter, "get raw data {}::{:?}", db, key)
+            }
+            StorageRequest::GetBlockHashAndHeightForTransaction {
+                transaction_hash,
+                responder: _responder,
+            } => {
+                write!(
+                    formatter,
+                    "get block hash and height for transaction {}",
+                    transaction_hash
+                )
             }
         }
     }
