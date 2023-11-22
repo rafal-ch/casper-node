@@ -89,7 +89,6 @@ pub use addressable_entity::{
 #[doc(inline)]
 pub use api_error::ApiError;
 pub use auction_state::{AuctionState, JsonEraValidators, JsonValidatorWeights};
-pub use binary_port::BinaryRequest;
 #[cfg(all(feature = "std", feature = "json-schema"))]
 pub use block::JsonBlockWithSignatures;
 pub use block::{
