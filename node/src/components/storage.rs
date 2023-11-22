@@ -72,11 +72,12 @@ use tracing::{debug, error, info, trace, warn};
 #[cfg(test)]
 use casper_types::Deploy;
 use casper_types::{
+    binary_port::db_id::DbId,
     bytesrepr::{FromBytes, ToBytes},
     execution::{
         execution_result_v1, ExecutionResult, ExecutionResultV1, ExecutionResultV2, TransformKind,
     },
-    AvailableBlockRange, Block, BlockBody, BlockHash, BlockHeader, BlockSignatures, BlockV2, DbId,
+    AvailableBlockRange, Block, BlockBody, BlockHash, BlockHeader, BlockSignatures, BlockV2,
     DeployApprovalsHash, DeployHash, DeployHeader, Digest, EraId, FinalitySignature,
     ProtocolVersion, PublicKey, SignedBlock, SignedBlockHeader, StoredValue, Timestamp,
     Transaction, TransactionApprovalsHash, TransactionHash, TransactionId,
