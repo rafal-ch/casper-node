@@ -6,7 +6,7 @@ use casper_json_rpc::{CorsOrigin, RequestHandlersBuilder};
 use casper_types::ProtocolVersion;
 
 use crate::{
-    node_interface::NodeInterface,
+    node_client::NodeClient,
     rpcs::{
         speculative_exec::{SpeculativeExec, SpeculativeExecTxn},
         RpcWithParams,
@@ -19,8 +19,8 @@ pub const SPECULATIVE_EXEC_API_PATH: &str = "rpc";
 pub const SPECULATIVE_EXEC_SERVER_NAME: &str = "speculative execution";
 
 /// Run the speculative execution server.
-pub(super) async fn run(
-    node: Arc<dyn NodeInterface>,
+pub async fn run(
+    node: Arc<dyn NodeClient>,
     builder: Builder<AddrIncoming>,
     api_version: ProtocolVersion,
     qps_limit: u64,

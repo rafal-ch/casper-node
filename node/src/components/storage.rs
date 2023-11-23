@@ -78,9 +78,9 @@ use casper_types::{
         execution_result_v1, ExecutionResult, ExecutionResultV1, ExecutionResultV2, TransformKind,
     },
     AvailableBlockRange, Block, BlockBody, BlockHash, BlockHeader, BlockSignatures, BlockV2,
-    DeployApprovalsHash, DeployHash, DeployHeader, Digest, EraId, FinalitySignature,
-    ProtocolVersion, PublicKey, SignedBlock, SignedBlockHeader, StoredValue, Timestamp,
-    Transaction, TransactionApprovalsHash, TransactionHash, TransactionId,
+    DeployApprovalsHash, DeployHash, DeployHeader, Digest, EraId, ExecutionInfo, FinalitySignature,
+    FinalizedApprovals, ProtocolVersion, PublicKey, SignedBlock, SignedBlockHeader, StoredValue,
+    Timestamp, Transaction, TransactionApprovalsHash, TransactionHash, TransactionId,
     TransactionV1ApprovalsHash, Transfer,
 };
 
@@ -99,9 +99,8 @@ use crate::{
     protocol::Message,
     types::{
         ApprovalsHashes, BlockExecutionResultsOrChunk, BlockExecutionResultsOrChunkId,
-        BlockWithMetadata, ExecutableBlock, ExecutionInfo, FinalizedApprovals, LegacyDeploy,
-        MaxTtl, NodeId, NodeRng, SyncLeap, SyncLeapIdentifier, TransactionWithFinalizedApprovals,
-        VariantMismatch,
+        BlockWithMetadata, ExecutableBlock, LegacyDeploy, MaxTtl, NodeId, NodeRng, SyncLeap,
+        SyncLeapIdentifier, TransactionWithFinalizedApprovals, VariantMismatch,
     },
     utils::{display_error, WithDir},
 };

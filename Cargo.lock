@@ -616,7 +616,7 @@ dependencies = [
  "humantime",
  "hyper",
  "itertools 0.10.5",
- "juliet",
+ "juliet 0.1.1",
  "libc",
  "linked-hash-map",
  "lmdb-rkv",
@@ -684,11 +684,13 @@ dependencies = [
  "async-trait",
  "backtrace",
  "base16",
+ "bincode",
  "casper-json-rpc",
  "casper-types",
  "datasize",
  "http",
  "hyper",
+ "juliet 0.1.0",
  "num_cpus",
  "once_cell",
  "schemars",
@@ -3271,6 +3273,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "54c0c35952f67de54bb584e9fd912b3023117cbafc0a77d8f3dee1fb5f572fe8"
 dependencies = [
  "wasm-bindgen",
+]
+
+[[package]]
+name = "juliet"
+version = "0.1.0"
+source = "git+https://github.com/casper-network/casper-node?rev=833e669b583edf7d89fb702555ad4041d25a8673#833e669b583edf7d89fb702555ad4041d25a8673"
+dependencies = [
+ "array-init",
+ "bimap",
+ "bytemuck",
+ "bytes",
+ "futures",
+ "hex_fmt",
+ "once_cell",
+ "strum 0.25.0",
+ "thiserror",
+ "tokio",
 ]
 
 [[package]]

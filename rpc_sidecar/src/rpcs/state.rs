@@ -7,21 +7,19 @@ use once_cell::sync::Lazy;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use super::{
+    chain::BlockIdentifier,
+    common,
+    common::MERKLE_PROOF,
+    docs::{DocExample, DOCS_EXAMPLE_PROTOCOL_VERSION},
+    Error, NodeClient, RpcError, RpcWithOptionalParams, RpcWithParams,
+};
 use casper_types::{
     account::{Account, AccountHash},
+    binary_port::get_all_values::GetAllValuesResult,
     bytesrepr::Bytes,
-    AuctionState, BlockHash, BlockHeader, BlockHeaderV2, BlockV2, CLValue, Digest, Key,
-    ProtocolVersion, PublicKey, SecretKey, StoredValue, URef, U512,
-};
-
-use crate::{
-    node_interface::NodeInterface,
-    rpcs::{
-        chain::BlockIdentifier,
-        common::MERKLE_PROOF,
-        docs::{DocExample, DOCS_EXAMPLE_PROTOCOL_VERSION},
-        Error, ErrorCode, RpcWithOptionalParams, RpcWithParams,
-    },
+    AuctionState, BlockHash, BlockHeader, BlockHeaderV2, BlockV2, CLValue, Digest, Key, KeyTag,
+    ProtocolVersion, PublicKey, SecretKey, StoredValue, Tagged, URef, U512,
 };
 
 static GET_ITEM_PARAMS: Lazy<GetItemParams> = Lazy::new(|| GetItemParams {
@@ -165,11 +163,20 @@ impl RpcWithParams for GetItem {
     type ResponseResult = GetItemResult;
 
     async fn do_handle_request(
-        _node_interface: Arc<dyn NodeInterface>,
-        _api_version: ProtocolVersion,
-        _params: Self::RequestParams,
-    ) -> Result<Self::ResponseResult, Error> {
-        todo!()
+        node_client: Arc<dyn NodeClient>,
+        api_version: ProtocolVersion,
+        params: Self::RequestParams,
+    ) -> Result<Self::ResponseResult, RpcError> {
+        let result = node_client
+            .query_global_state(params.state_root_hash, params.key, params.path)
+            .await
+            .map_err(|err| Error::NodeRequest("global state item", err))?;
+        let result = common::handle_query_result(result)?;
+        Ok(Self::ResponseResult {
+            api_version,
+            stored_value: result.value,
+            merkle_proof: result.merkle_proof,
+        })
     }
 }
 
@@ -218,11 +225,18 @@ impl RpcWithParams for GetBalance {
     type ResponseResult = GetBalanceResult;
 
     async fn do_handle_request(
-        _node_interface: Arc<dyn NodeInterface>,
-        _api_version: ProtocolVersion,
-        _params: Self::RequestParams,
-    ) -> Result<Self::ResponseResult, Error> {
-        todo!()
+        node_client: Arc<dyn NodeClient>,
+        api_version: ProtocolVersion,
+        params: Self::RequestParams,
+    ) -> Result<Self::ResponseResult, RpcError> {
+        let purse_uref =
+            URef::from_formatted_str(&params.purse_uref).map_err(Error::InvalidPurseURef)?;
+        let result = common::get_balance(&*node_client, purse_uref, params.state_root_hash).await?;
+        Ok(Self::ResponseResult {
+            api_version,
+            balance_value: result.value,
+            merkle_proof: result.merkle_proof,
+        })
     }
 }
 
@@ -267,10 +281,23 @@ impl RpcWithOptionalParams for GetAuctionInfo {
     type ResponseResult = GetAuctionInfoResult;
 
     async fn do_handle_request(
-        _node_interface: Arc<dyn NodeInterface>,
+        node_client: Arc<dyn NodeClient>,
         _api_version: ProtocolVersion,
-        _maybe_params: Option<Self::OptionalRequestParams>,
-    ) -> Result<Self::ResponseResult, Error> {
+        maybe_params: Option<Self::OptionalRequestParams>,
+    ) -> Result<Self::ResponseResult, RpcError> {
+        let maybe_block_id = maybe_params.map(|params| params.block_identifier);
+        let block = common::get_signed_block(&*node_client, maybe_block_id).await?;
+        let _bids = match node_client
+            .query_global_state_by_tag(*block.block().state_root_hash(), KeyTag::Bid)
+            .await
+            .map_err(|err| Error::NodeRequest("auction bids", err))?
+        {
+            GetAllValuesResult::Success { values } => values,
+            GetAllValuesResult::RootNotFound => {
+                return Err(Error::GlobalStateRootHashNotFound.into())
+            }
+        };
+
         todo!()
     }
 }
@@ -331,11 +358,34 @@ impl RpcWithParams for GetAccountInfo {
     type ResponseResult = GetAccountInfoResult;
 
     async fn do_handle_request(
-        _node_interface: Arc<dyn NodeInterface>,
-        _api_version: ProtocolVersion,
-        _params: Self::RequestParams,
-    ) -> Result<Self::ResponseResult, Error> {
-        todo!()
+        node_client: Arc<dyn NodeClient>,
+        api_version: ProtocolVersion,
+        params: Self::RequestParams,
+    ) -> Result<Self::ResponseResult, RpcError> {
+        let signed_block = common::get_signed_block(&*node_client, params.block_identifier).await?;
+        let state_root_hash = *signed_block.block().state_root_hash();
+        let base_key = {
+            let account_hash = match params.account_identifier {
+                AccountIdentifier::PublicKey(public_key) => public_key.to_account_hash(),
+                AccountIdentifier::AccountHash(account_hash) => account_hash,
+            };
+            Key::Account(account_hash)
+        };
+        let result = node_client
+            .query_global_state(state_root_hash, base_key, vec![])
+            .await
+            .map_err(|err| Error::NodeRequest("account info", err))?;
+        let result = common::handle_query_result(result)?;
+        let account = result
+            .value
+            .into_account()
+            .ok_or(Error::InvalidAccountInfo)?;
+
+        Ok(Self::ResponseResult {
+            api_version,
+            account,
+            merkle_proof: result.merkle_proof,
+        })
     }
 }
 
@@ -372,8 +422,6 @@ pub enum DictionaryIdentifier {
 }
 
 impl DictionaryIdentifier {
-    // TODO: will be used
-    #[allow(unused)]
     fn get_dictionary_address(
         &self,
         maybe_stored_value: Option<StoredValue>,
@@ -393,36 +441,17 @@ impl DictionaryIdentifier {
                     Some(StoredValue::Account(account)) => account.named_keys(),
                     Some(StoredValue::AddressableEntity(contract)) => contract.named_keys(),
                     Some(other) => {
-                        return Err(Error::new(
-                            ErrorCode::FailedToGetDictionaryURef,
-                            format!(
-                                "expected account or contract, but got {}",
-                                other.type_name()
-                            ),
-                        ))
+                        return Err(Error::InvalidTypeUnderDictionaryKey(other.type_name()))
                     }
-                    None => {
-                        return Err(Error::new(
-                            ErrorCode::FailedToGetDictionaryURef,
-                            "could not retrieve account/contract".to_string(),
-                        ))
-                    }
+                    None => return Err(Error::DictionaryKeyNotFound),
                 };
 
                 let key_bytes = dictionary_item_key.as_str().as_bytes();
                 let seed_uref = match named_keys.get(dictionary_name) {
-                    Some(key) => *key.as_uref().ok_or_else(|| {
-                        Error::new(
-                            ErrorCode::FailedToGetDictionaryURef,
-                            format!("expected uref, but got {}", key),
-                        )
-                    })?,
-                    None => {
-                        return Err(Error::new(
-                            ErrorCode::FailedToGetDictionaryURef,
-                            "seed uref not in named keys".to_string(),
-                        ))
-                    }
+                    Some(key) => *key
+                        .as_uref()
+                        .ok_or_else(|| Error::DictionaryValueIsNotAUref(key.tag()))?,
+                    None => return Err(Error::DictionaryNameNotFound),
                 };
 
                 Ok(Key::dictionary(seed_uref, key_bytes))
@@ -432,22 +461,12 @@ impl DictionaryIdentifier {
                 dictionary_item_key,
             } => {
                 let key_bytes = dictionary_item_key.as_str().as_bytes();
-                let seed_uref = URef::from_formatted_str(seed_uref).map_err(|error| {
-                    Error::new(
-                        ErrorCode::FailedToGetDictionaryURef,
-                        format!("failed to parse uref: {}", error),
-                    )
-                })?;
+                let seed_uref = URef::from_formatted_str(seed_uref)
+                    .map_err(|error| Error::DictionaryKeyCouldNotBeParsed(error.to_string()))?;
                 Ok(Key::dictionary(seed_uref, key_bytes))
             }
-            DictionaryIdentifier::Dictionary(address) => {
-                Key::from_formatted_str(address).map_err(|error| {
-                    Error::new(
-                        ErrorCode::FailedToGetDictionaryURef,
-                        format!("failed to parse dictionary key: {}", error),
-                    )
-                })
-            }
+            DictionaryIdentifier::Dictionary(address) => Key::from_formatted_str(address)
+                .map_err(|error| Error::DictionaryKeyCouldNotBeParsed(error.to_string())),
         }
     }
 }
@@ -499,11 +518,39 @@ impl RpcWithParams for GetDictionaryItem {
     type ResponseResult = GetDictionaryItemResult;
 
     async fn do_handle_request(
-        _node_interface: Arc<dyn NodeInterface>,
-        _api_version: ProtocolVersion,
-        _params: Self::RequestParams,
-    ) -> Result<Self::ResponseResult, Error> {
-        todo!()
+        node_client: Arc<dyn NodeClient>,
+        api_version: ProtocolVersion,
+        params: Self::RequestParams,
+    ) -> Result<Self::ResponseResult, RpcError> {
+        let dictionary_key = match params.dictionary_identifier {
+            DictionaryIdentifier::AccountNamedKey { ref key, .. }
+            | DictionaryIdentifier::ContractNamedKey { ref key, .. } => {
+                let base_key = Key::from_formatted_str(key).map_err(Error::InvalidDictionaryKey)?;
+                let result = node_client
+                    .query_global_state(params.state_root_hash, base_key, vec![])
+                    .await
+                    .map_err(|err| Error::NodeRequest("dictionary key", err))?;
+                let result = common::handle_query_result(result)?;
+                params
+                    .dictionary_identifier
+                    .get_dictionary_address(Some(result.value))?
+            }
+            DictionaryIdentifier::URef { .. } | DictionaryIdentifier::Dictionary(_) => {
+                params.dictionary_identifier.get_dictionary_address(None)?
+            }
+        };
+        let result = node_client
+            .query_global_state(params.state_root_hash, dictionary_key, vec![])
+            .await
+            .map_err(|err| Error::NodeRequest("dictionary item", err))?;
+        let result = common::handle_query_result(result)?;
+
+        Ok(Self::ResponseResult {
+            api_version,
+            dictionary_key: dictionary_key.to_formatted_string(),
+            stored_value: result.value,
+            merkle_proof: result.merkle_proof,
+        })
     }
 }
 
@@ -569,11 +616,25 @@ impl RpcWithParams for QueryGlobalState {
     type ResponseResult = QueryGlobalStateResult;
 
     async fn do_handle_request(
-        _node_interface: Arc<dyn NodeInterface>,
-        _api_version: ProtocolVersion,
-        _params: Self::RequestParams,
-    ) -> Result<Self::ResponseResult, Error> {
-        todo!()
+        node_client: Arc<dyn NodeClient>,
+        api_version: ProtocolVersion,
+        params: Self::RequestParams,
+    ) -> Result<Self::ResponseResult, RpcError> {
+        let (state_root_hash, block_header) =
+            common::resolve_state_root_hash(&*node_client, params.state_identifier).await?;
+
+        let result = node_client
+            .query_global_state(state_root_hash, params.key, params.path)
+            .await
+            .map_err(|err| Error::NodeRequest("global state item", err))?;
+        let result = common::handle_query_result(result)?;
+
+        Ok(Self::ResponseResult {
+            api_version,
+            block_header,
+            stored_value: result.value,
+            merkle_proof: result.merkle_proof,
+        })
     }
 }
 
@@ -631,11 +692,20 @@ impl RpcWithParams for QueryBalance {
     type ResponseResult = QueryBalanceResult;
 
     async fn do_handle_request(
-        _node_interface: Arc<dyn NodeInterface>,
-        _api_version: ProtocolVersion,
-        _params: Self::RequestParams,
-    ) -> Result<Self::ResponseResult, Error> {
-        todo!()
+        node_client: Arc<dyn NodeClient>,
+        api_version: ProtocolVersion,
+        params: Self::RequestParams,
+    ) -> Result<Self::ResponseResult, RpcError> {
+        let (state_root_hash, _) =
+            common::resolve_state_root_hash(&*node_client, params.state_identifier).await?;
+        let purse =
+            common::get_main_purse(&*node_client, params.purse_identifier, state_root_hash).await?;
+        let balance = common::get_balance(&*node_client, purse, state_root_hash).await?;
+
+        Ok(Self::ResponseResult {
+            api_version,
+            balance: balance.value,
+        })
     }
 }
 
@@ -683,10 +753,10 @@ impl RpcWithParams for GetTrie {
     type ResponseResult = GetTrieResult;
 
     async fn do_handle_request(
-        _node_interface: Arc<dyn NodeInterface>,
+        _node_client: Arc<dyn NodeClient>,
         _api_version: ProtocolVersion,
         _params: Self::RequestParams,
-    ) -> Result<Self::ResponseResult, Error> {
+    ) -> Result<Self::ResponseResult, RpcError> {
         todo!()
     }
 }

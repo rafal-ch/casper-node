@@ -1,6 +1,8 @@
 #[cfg(any(feature = "std", test))]
 mod account_and_secret_key;
 mod deploy;
+mod execution_info;
+mod finalized_approvals;
 mod transaction_approvals_hash;
 mod transaction_hash;
 mod transaction_header;
@@ -40,7 +42,9 @@ pub use deploy::{
     PackageIdentifier, TransferTarget,
 };
 #[cfg(any(feature = "std", test))]
-pub use deploy::{DeployBuilder, DeployBuilderError};
+pub use deploy::{DeployBuilder, DeployBuilderError, FinalizedDeployApprovals};
+pub use execution_info::ExecutionInfo;
+pub use finalized_approvals::FinalizedApprovals;
 pub use transaction_approvals_hash::TransactionApprovalsHash;
 pub use transaction_hash::TransactionHash;
 pub use transaction_header::TransactionHeader;
@@ -48,10 +52,11 @@ pub use transaction_id::TransactionId;
 #[cfg(any(all(feature = "std", feature = "testing"), test))]
 pub use transaction_v1::TestTransactionV1Builder;
 pub use transaction_v1::{
-    AuctionTransactionV1, DirectCallV1, NativeTransactionV1, PricingModeV1, TransactionV1,
-    TransactionV1Approval, TransactionV1ApprovalsHash, TransactionV1ConfigFailure,
-    TransactionV1DecodeFromJsonError, TransactionV1Error, TransactionV1ExcessiveSizeError,
-    TransactionV1Hash, TransactionV1Header, TransactionV1Kind, UserlandTransactionV1,
+    AuctionTransactionV1, DirectCallV1, FinalizedTransactionV1Approvals, NativeTransactionV1,
+    PricingModeV1, TransactionV1, TransactionV1Approval, TransactionV1ApprovalsHash,
+    TransactionV1ConfigFailure, TransactionV1DecodeFromJsonError, TransactionV1Error,
+    TransactionV1ExcessiveSizeError, TransactionV1Hash, TransactionV1Header, TransactionV1Kind,
+    UserlandTransactionV1,
 };
 #[cfg(any(feature = "std", test))]
 pub use transaction_v1::{TransactionV1Builder, TransactionV1BuilderError};

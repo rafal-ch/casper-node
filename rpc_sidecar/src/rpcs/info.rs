@@ -8,16 +8,15 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use casper_types::{
-    bytesrepr::{self, ToBytes},
-    ChainspecRawBytes, Deploy, DeployHash, EraId, ProtocolVersion, PublicKey, Transaction,
-    TransactionHash, ValidatorChange,
+    execution::{ExecutionResult, ExecutionResultV2},
+    Block, ChainspecRawBytes, Deploy, DeployHash, EraId, ExecutionInfo, FinalizedApprovals,
+    ProtocolVersion, PublicKey, Transaction, TransactionHash, ValidatorChange,
 };
 
-use crate::node_interface::{Database, NodeInterface};
-
 use super::{
+    common,
     docs::{DocExample, DOCS_EXAMPLE_PROTOCOL_VERSION},
-    Error, ErrorCode, RpcWithParams, RpcWithoutParams,
+    Error, NodeClient, RpcError, RpcWithParams, RpcWithoutParams,
 };
 
 static GET_DEPLOY_PARAMS: Lazy<GetDeployParams> = Lazy::new(|| GetDeployParams {
@@ -27,7 +26,11 @@ static GET_DEPLOY_PARAMS: Lazy<GetDeployParams> = Lazy::new(|| GetDeployParams {
 static GET_DEPLOY_RESULT: Lazy<GetDeployResult> = Lazy::new(|| GetDeployResult {
     api_version: DOCS_EXAMPLE_PROTOCOL_VERSION,
     deploy: Deploy::doc_example().clone(),
-    execution_info: Some(ExecutionInfo {}),
+    execution_info: Some(ExecutionInfo {
+        block_hash: *Block::example().hash(),
+        block_height: Block::example().clone_header().height(),
+        execution_result: Some(ExecutionResult::from(ExecutionResultV2::example().clone())),
+    }),
 });
 static GET_TRANSACTION_PARAMS: Lazy<GetTransactionParams> = Lazy::new(|| GetTransactionParams {
     transaction_hash: Transaction::doc_example().hash(),
@@ -36,7 +39,11 @@ static GET_TRANSACTION_PARAMS: Lazy<GetTransactionParams> = Lazy::new(|| GetTran
 static GET_TRANSACTION_RESULT: Lazy<GetTransactionResult> = Lazy::new(|| GetTransactionResult {
     api_version: DOCS_EXAMPLE_PROTOCOL_VERSION,
     transaction: Transaction::doc_example().clone(),
-    execution_info: Some(ExecutionInfo {}),
+    execution_info: Some(ExecutionInfo {
+        block_hash: *Block::example().hash(),
+        block_height: Block::example().height(),
+        execution_result: Some(ExecutionResult::from(ExecutionResultV2::example().clone())),
+    }),
 });
 static GET_VALIDATOR_CHANGES_RESULT: Lazy<GetValidatorChangesResult> = Lazy::new(|| {
     let change = JsonValidatorStatusChange::new(EraId::new(1), ValidatorChange::Added);
@@ -106,34 +113,31 @@ impl RpcWithParams for GetDeploy {
     type ResponseResult = GetDeployResult;
 
     async fn do_handle_request(
-        node_interface: Arc<dyn NodeInterface>,
+        node_client: Arc<dyn NodeClient>,
         api_version: ProtocolVersion,
         params: Self::RequestParams,
-    ) -> Result<Self::ResponseResult, Error> {
-        let txn_hash = TransactionHash::from(params.deploy_hash);
-        let key = txn_hash
-            .to_bytes()
-            .expect("should always serialize a digest");
-        let txn = node_interface
-            .read(Database::Transaction, &key)
-            .await
-            .map_err(|err| Error::new(ErrorCode::QueryFailed, err.to_string()))?;
-        let txn = bytesrepr::deserialize_from_slice::<_, Transaction>(&txn)
-            .map_err(|err| Error::new(ErrorCode::InvalidTransaction, err.to_string()))?;
-        let deploy = if let Transaction::Deploy(deploy) = txn {
-            deploy
-        } else {
-            return Err(Error::new(
-                ErrorCode::InvalidTransaction,
-                "transaction is not a deploy".to_string(),
-            ));
+    ) -> Result<Self::ResponseResult, RpcError> {
+        let hash = TransactionHash::from(params.deploy_hash);
+        let (transaction, approvals) =
+            common::get_transaction_with_approvals(&*node_client, hash).await?;
+
+        let deploy = match (transaction, approvals) {
+            (Transaction::Deploy(deploy), Some(FinalizedApprovals::Deploy(approvals)))
+                if params.finalized_approvals =>
+            {
+                deploy.with_approvals(approvals.into_inner())
+            }
+            (Transaction::Deploy(deploy), Some(FinalizedApprovals::Deploy(_)) | None) => deploy,
+            (Transaction::V1(_), _) => return Err(Error::FoundTransactionInsteadOfDeploy.into()),
+            _ => return Err(Error::InconsistentTransactionVersions(hash).into()),
         };
+
+        let execution_info = common::get_transaction_execution_info(&*node_client, hash).await?;
 
         Ok(Self::ResponseResult {
             api_version,
             deploy,
-            // TODO: get execution info
-            execution_info: None,
+            execution_info,
         })
     }
 }
@@ -156,10 +160,6 @@ impl DocExample for GetTransactionParams {
         &GET_TRANSACTION_PARAMS
     }
 }
-
-// TODO: what to do with execution status?
-#[derive(PartialEq, Eq, Serialize, Deserialize, Debug, JsonSchema)]
-pub struct ExecutionInfo {}
 
 /// Result for "info_get_transaction" RPC response.
 #[derive(PartialEq, Eq, Serialize, Deserialize, Debug, JsonSchema)]
@@ -191,11 +191,43 @@ impl RpcWithParams for GetTransaction {
     type ResponseResult = GetTransactionResult;
 
     async fn do_handle_request(
-        _node_interface: Arc<dyn NodeInterface>,
-        _api_version: ProtocolVersion,
-        _params: Self::RequestParams,
-    ) -> Result<Self::ResponseResult, Error> {
-        todo!()
+        node_client: Arc<dyn NodeClient>,
+        api_version: ProtocolVersion,
+        params: Self::RequestParams,
+    ) -> Result<Self::ResponseResult, RpcError> {
+        let (transaction, approvals) =
+            common::get_transaction_with_approvals(&*node_client, params.transaction_hash).await?;
+
+        let transaction = match (transaction, approvals) {
+            (Transaction::V1(txn), Some(FinalizedApprovals::V1(approvals)))
+                if params.finalized_approvals =>
+            {
+                Transaction::from(txn.with_approvals(approvals.into_inner()))
+            }
+            (Transaction::V1(txn), Some(FinalizedApprovals::V1(_)) | None) => {
+                Transaction::from(txn)
+            }
+            (Transaction::Deploy(deploy), Some(FinalizedApprovals::Deploy(approvals)))
+                if params.finalized_approvals =>
+            {
+                Transaction::from(deploy.with_approvals(approvals.into_inner()))
+            }
+            (Transaction::Deploy(deploy), Some(FinalizedApprovals::Deploy(_)) | None) => {
+                Transaction::from(deploy)
+            }
+            _ => {
+                return Err(Error::InconsistentTransactionVersions(params.transaction_hash).into())
+            }
+        };
+
+        let execution_info =
+            common::get_transaction_execution_info(&*node_client, params.transaction_hash).await?;
+
+        Ok(Self::ResponseResult {
+            transaction,
+            api_version,
+            execution_info,
+        })
     }
 }
 
@@ -293,9 +325,9 @@ impl RpcWithoutParams for GetValidatorChanges {
     type ResponseResult = GetValidatorChangesResult;
 
     async fn do_handle_request(
-        _node_interface: Arc<dyn NodeInterface>,
+        _node_client: Arc<dyn NodeClient>,
         _api_version: ProtocolVersion,
-    ) -> Result<Self::ResponseResult, Error> {
+    ) -> Result<Self::ResponseResult, RpcError> {
         todo!()
     }
 }
@@ -325,9 +357,9 @@ impl RpcWithoutParams for GetChainspec {
     type ResponseResult = GetChainspecResult;
 
     async fn do_handle_request(
-        _node_interface: Arc<dyn NodeInterface>,
+        _node_client: Arc<dyn NodeClient>,
         _api_version: ProtocolVersion,
-    ) -> Result<Self::ResponseResult, Error> {
+    ) -> Result<Self::ResponseResult, RpcError> {
         todo!()
     }
 }
