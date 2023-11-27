@@ -1,9 +1,5 @@
 //! The binary response.
 
-use core::any;
-
-use tracing::error;
-
 use crate::{
     bytesrepr::{self, Bytes, FromBytes, ToBytes, U8_SERIALIZED_LENGTH},
     BlockHash, BlockHashAndHeight, PeersMap,
