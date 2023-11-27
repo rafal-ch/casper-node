@@ -5,7 +5,10 @@ use hyper::server::{conn::AddrIncoming, Builder};
 use casper_json_rpc::{CorsOrigin, RequestHandlersBuilder};
 use casper_types::ProtocolVersion;
 
-use crate::node_client::NodeClient;
+use crate::{
+    rpcs::info::{GetPeers, GetStatus},
+    NodeClient,
+};
 
 use super::rpcs::{
     account::{PutDeploy, PutTransaction},
@@ -46,9 +49,8 @@ pub async fn run(
     GetBalance::register_as_handler(node.clone(), api_version, &mut handlers);
     GetAccountInfo::register_as_handler(node.clone(), api_version, &mut handlers);
     GetDeploy::register_as_handler(node.clone(), api_version, &mut handlers);
-    // TODO: handle peers and status
-    // GetPeers::register_as_handler(node_client.clone(), api_version, &mut handlers);
-    // GetStatus::register_as_handler(node_client.clone(), api_version, &mut handlers);
+    GetPeers::register_as_handler(node.clone(), api_version, &mut handlers);
+    GetStatus::register_as_handler(node.clone(), api_version, &mut handlers);
     GetEraInfoBySwitchBlock::register_as_handler(node.clone(), api_version, &mut handlers);
     GetEraSummary::register_as_handler(node.clone(), api_version, &mut handlers);
     GetAuctionInfo::register_as_handler(node.clone(), api_version, &mut handlers);

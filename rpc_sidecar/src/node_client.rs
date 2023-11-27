@@ -2,6 +2,7 @@ use std::{future::Future, net::SocketAddr, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 
+use crate::{config::ExponentialBackoffConfig, NodeClientConfig};
 use casper_types::{
     binary_port::{
         binary_request::BinaryRequest, db_id::DbId, get::GetRequest,
@@ -11,8 +12,9 @@ use casper_types::{
     bytesrepr::{self, ToBytes},
     contract_messages::Message,
     execution::{ExecutionResult, ExecutionResultV2},
-    BlockBody, BlockHash, BlockHashAndHeight, BlockHeader, BlockSignatures, Digest,
-    FinalizedApprovals, Key, KeyTag, ProtocolVersion, Timestamp, Transaction, TransactionHash,
+    AvailableBlockRange, BlockBody, BlockHash, BlockHashAndHeight, BlockHeader, BlockSignatures,
+    BlockSynchronizerStatus, Digest, FinalizedApprovals, Key, KeyTag, NextUpgrade, PeersMap,
+    ProtocolVersion, PublicKey, ReactorState, TimeDiff, Timestamp, Transaction, TransactionHash,
     Transfer,
 };
 use juliet::{
@@ -31,7 +33,7 @@ use tokio::{
 use tracing::{error, info, warn};
 
 #[async_trait]
-pub trait NodeClient: Send + Sync + 'static {
+pub trait NodeClient: Send + Sync {
     async fn read_from_db(&self, db: DbId, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
 
     async fn read_from_mem(&self, req: NonPersistedDataRequest) -> Result<Option<Vec<u8>>, Error>;
@@ -172,6 +174,86 @@ pub trait NodeClient: Send + Sync + 'static {
         bytesrepr::deserialize_from_slice(resp)
             .map_err(|err| Error::Deserialization(err.to_string()))
     }
+
+    async fn read_peers(&self) -> Result<PeersMap, Error> {
+        let resp = self
+            .read_from_mem(NonPersistedDataRequest::Peers)
+            .await?
+            .ok_or(Error::NoResponseBody)?;
+        bytesrepr::deserialize_from_slice(resp)
+            .map_err(|err| Error::Deserialization(err.to_string()))
+    }
+
+    async fn read_uptime(&self) -> Result<Duration, Error> {
+        let resp = self
+            .read_from_mem(NonPersistedDataRequest::Uptime)
+            .await?
+            .ok_or(Error::NoResponseBody)?;
+        let secs: u64 = bytesrepr::deserialize_from_slice(resp)
+            .map_err(|err| Error::Deserialization(err.to_string()))?;
+        Ok(Duration::from_secs(secs))
+    }
+
+    async fn read_last_progress(&self) -> Result<Timestamp, Error> {
+        let resp = self
+            .read_from_mem(NonPersistedDataRequest::LastProgress)
+            .await?
+            .ok_or(Error::NoResponseBody)?;
+        bytesrepr::deserialize_from_slice(resp)
+            .map_err(|err| Error::Deserialization(err.to_string()))
+    }
+
+    async fn read_reactor_state(&self) -> Result<ReactorState, Error> {
+        let resp = self
+            .read_from_mem(NonPersistedDataRequest::ReactorState)
+            .await?
+            .ok_or(Error::NoResponseBody)?;
+        bytesrepr::deserialize_from_slice(resp)
+            .map_err(|err| Error::Deserialization(err.to_string()))
+    }
+
+    async fn read_network_name(&self) -> Result<String, Error> {
+        let resp = self
+            .read_from_mem(NonPersistedDataRequest::NetworkName)
+            .await?
+            .ok_or(Error::NoResponseBody)?;
+        bytesrepr::deserialize_from_slice(resp)
+            .map_err(|err| Error::Deserialization(err.to_string()))
+    }
+
+    async fn read_block_sync_status(&self) -> Result<BlockSynchronizerStatus, Error> {
+        let resp = self
+            .read_from_mem(NonPersistedDataRequest::BlockSynchronizerStatus)
+            .await?
+            .ok_or(Error::NoResponseBody)?;
+        bytesrepr::deserialize_from_slice(resp)
+            .map_err(|err| Error::Deserialization(err.to_string()))
+    }
+
+    async fn read_available_block_range(&self) -> Result<AvailableBlockRange, Error> {
+        let resp = self
+            .read_from_mem(NonPersistedDataRequest::AvailableBlockRange)
+            .await?
+            .ok_or(Error::NoResponseBody)?;
+        bytesrepr::deserialize_from_slice(resp)
+            .map_err(|err| Error::Deserialization(err.to_string()))
+    }
+
+    async fn read_next_upgrade(&self) -> Result<Option<NextUpgrade>, Error> {
+        self.read_from_mem(NonPersistedDataRequest::NextUpgrade)
+            .await?
+            .map(bytesrepr::deserialize_from_slice)
+            .transpose()
+            .map_err(|err| Error::Deserialization(err.to_string()))
+    }
+
+    async fn read_consensus_status(&self) -> Result<Option<(PublicKey, Option<TimeDiff>)>, Error> {
+        self.read_from_mem(NonPersistedDataRequest::ConsensusStatus)
+            .await?
+            .map(bytesrepr::deserialize_from_slice)
+            .transpose()
+            .map_err(|err| Error::Deserialization(err.to_string()))
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -192,33 +274,41 @@ pub enum Error {
 
 const CHANNEL_COUNT: usize = 1;
 
+#[derive(Debug)]
 pub struct JulietNodeClient {
     client: Arc<RwLock<JulietRpcClient<CHANNEL_COUNT>>>,
 }
 
 impl JulietNodeClient {
-    pub async fn new(addr: impl Into<SocketAddr>) -> (Self, impl Future<Output = ()>) {
-        let addr = addr.into();
+    pub async fn new(config: &NodeClientConfig) -> (Self, impl Future<Output = ()> + '_) {
         let protocol_builder = ProtocolBuilder::<1>::with_default_channel_config(
             ChannelConfiguration::default()
-                .with_request_limit(3)
-                .with_max_request_payload_size(4 * 1024 * 1024)
-                .with_max_response_payload_size(4 * 1024 * 1024),
+                .with_request_limit(config.request_limit)
+                .with_max_request_payload_size(config.max_request_size_bytes)
+                .with_max_response_payload_size(config.max_response_size_bytes),
         );
-        let io_builder = IoCoreBuilder::new(protocol_builder).buffer_size(ChannelId::new(0), 16);
+        let io_builder = IoCoreBuilder::new(protocol_builder)
+            .buffer_size(ChannelId::new(0), config.queue_buffer_size);
         let rpc_builder = RpcBuilder::new(io_builder);
 
-        let stream = Self::connect_with_retries(addr).await;
+        let stream = Self::connect_with_retries(config.address, &config.exponential_backoff).await;
         let (reader, writer) = stream.into_split();
         let (client, server) = rpc_builder.build(reader, writer);
         let client = Arc::new(RwLock::new(client));
-        let server_loop = Self::server_loop(addr, rpc_builder, Arc::clone(&client), server);
+        let server_loop = Self::server_loop(
+            config.address,
+            &config.exponential_backoff,
+            rpc_builder,
+            Arc::clone(&client),
+            server,
+        );
 
         (Self { client }, server_loop)
     }
 
     async fn server_loop(
         addr: SocketAddr,
+        config: &ExponentialBackoffConfig,
         rpc_builder: RpcBuilder<CHANNEL_COUNT>,
         client: Arc<RwLock<JulietRpcClient<CHANNEL_COUNT>>>,
         mut server: JulietRpcServer<CHANNEL_COUNT, OwnedReadHalf, OwnedWriteHalf>,
@@ -227,7 +317,8 @@ impl JulietNodeClient {
             match server.next_request().await {
                 Ok(None) | Err(_) => {
                     error!("node connection closed, will attempt to reconnect");
-                    let (reader, writer) = Self::connect_with_retries(addr).await.into_split();
+                    let (reader, writer) =
+                        Self::connect_with_retries(addr, config).await.into_split();
                     let (new_client, new_server) = rpc_builder.build(reader, writer);
 
                     info!("connection with the node has been re-established");
@@ -241,17 +332,16 @@ impl JulietNodeClient {
         }
     }
 
-    async fn connect_with_retries(addr: SocketAddr) -> TcpStream {
-        const BACKOFF_MULT: u64 = 2;
-        const MIN_WAIT: u64 = 1000;
-        const MAX_WAIT: u64 = 64_000;
-
-        let mut wait = MIN_WAIT;
+    async fn connect_with_retries(
+        addr: SocketAddr,
+        config: &ExponentialBackoffConfig,
+    ) -> TcpStream {
+        let mut wait = config.initial_delay_ms;
         loop {
             match TcpStream::connect(addr).await {
                 Ok(server) => break server,
                 Err(err) => {
-                    wait = (wait * BACKOFF_MULT).min(MAX_WAIT);
+                    wait = (wait * config.coefficient).min(config.max_delay_ms);
                     warn!(%err, "failed to connect to the node, waiting {wait}ms before retrying");
                     tokio::time::sleep(Duration::from_millis(wait)).await;
                 }
@@ -273,7 +363,7 @@ impl JulietNodeClient {
             .wait_for_response()
             .await
             .map_err(|err| Error::RequestFailed(err.to_string()))?;
-        Ok(response.map(|bytes| bytes.to_vec()))
+        Ok(response.map(Into::into))
     }
 }
 
