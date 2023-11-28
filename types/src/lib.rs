@@ -92,15 +92,17 @@ pub use addressable_entity::{
 pub use api_error::ApiError;
 pub use auction_state::{AuctionState, JsonEraValidators, JsonValidatorWeights};
 #[cfg(all(feature = "std", feature = "json-schema"))]
+pub use block::JsonBlockWithSignatures;
 pub use block::{
-    AvailableBlockRange, Block, BlockBody, BlockBodyV1, BlockBodyV2, BlockHash, BlockHeader,
-    BlockHeaderV1, BlockHeaderV2, BlockSignatures, BlockSignaturesMergeError, BlockSyncStatus,
-    BlockSynchronizerStatus, BlockV1, BlockV2, BlockValidationError, EraEnd, EraEndV1, EraEndV2,
-    EraReport, FinalitySignature, FinalitySignatureId, JsonBlockWithSignatures, RewardedSignatures,
-    Rewards, SignedBlockHeader, SignedBlockHeaderValidationError, SingleBlockRewardedSignatures,
+    AvailableBlockRange, Block, BlockBody, BlockBodyV1, BlockBodyV2, BlockHash, BlockHashAndHeight,
+    BlockHeader, BlockHeaderV1, BlockHeaderV2, BlockSignatures, BlockSignaturesMergeError,
+    BlockSyncStatus, BlockSynchronizerStatus, BlockV1, BlockV2, BlockValidationError, EraEnd,
+    EraEndV1, EraEndV2, EraReport, FinalitySignature, FinalitySignatureId, RewardedSignatures,
+    Rewards, SignedBlock, SignedBlockHeader, SignedBlockHeaderValidationError,
+    SingleBlockRewardedSignatures,
 };
 #[cfg(any(feature = "testing", test))]
-pub use block::{BlockHashAndHeight, SignedBlock, TestBlockBuilder, TestBlockV1Builder};
+pub use block::{TestBlockBuilder, TestBlockV1Builder};
 pub use block_time::{BlockTime, BLOCKTIME_SERIALIZED_LENGTH};
 pub use byte_code::{ByteCode, ByteCodeHash, ByteCodeKind};
 #[cfg(any(feature = "std", test))]
@@ -175,17 +177,17 @@ pub use transaction::{
     runtime_args, AuctionTransactionV1, Deploy, DeployApproval, DeployApprovalsHash,
     DeployConfigFailure, DeployDecodeFromJsonError, DeployError, DeployExcessiveSizeError,
     DeployFootprint, DeployHash, DeployHeader, DeployId, DirectCallV1, EntityIdentifier,
-    ExecutableDeployItem, ExecutableDeployItemIdentifier, NativeTransactionV1, PackageIdentifier,
-    PricingModeV1, Transaction, TransactionApprovalsHash, TransactionHash, TransactionHeader,
-    TransactionId, TransactionV1, TransactionV1Approval, TransactionV1ApprovalsHash,
-    TransactionV1ConfigFailure, TransactionV1DecodeFromJsonError, TransactionV1Error,
-    TransactionV1ExcessiveSizeError, TransactionV1Hash, TransactionV1Header, TransactionV1Kind,
-    TransferTarget, UserlandTransactionV1,
+    ExecutableDeployItem, ExecutableDeployItemIdentifier, ExecutionInfo, FinalizedApprovals,
+    FinalizedDeployApprovals, FinalizedTransactionV1Approvals, NativeTransactionV1,
+    PackageIdentifier, PricingModeV1, Transaction, TransactionApprovalsHash, TransactionHash,
+    TransactionHeader, TransactionId, TransactionV1, TransactionV1Approval,
+    TransactionV1ApprovalsHash, TransactionV1ConfigFailure, TransactionV1DecodeFromJsonError,
+    TransactionV1Error, TransactionV1ExcessiveSizeError, TransactionV1Hash, TransactionV1Header,
+    TransactionV1Kind, TransferTarget, UserlandTransactionV1,
 };
 #[cfg(any(feature = "std", test))]
 pub use transaction::{
-    DeployBuilder, DeployBuilderError, ExecutionInfo, FinalizedApprovals, FinalizedDeployApprovals,
-    FinalizedTransactionV1Approvals, TransactionV1Builder, TransactionV1BuilderError,
+    DeployBuilder, DeployBuilderError, TransactionV1Builder, TransactionV1BuilderError,
 };
 pub use transfer::{
     FromStrError as TransferFromStrError, Transfer, TransferAddr, TRANSFER_ADDR_LENGTH,
