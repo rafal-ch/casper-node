@@ -2154,9 +2154,7 @@
       },
       "TimeDiff": {
         "description": "Human-readable duration.",
-        "type": "integer",
-        "format": "uint64",
-        "minimum": 0.0
+        "type": "string"
       },
       "Digest": {
         "description": "Hex-encoded hash digest.",
