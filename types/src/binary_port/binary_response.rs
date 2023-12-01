@@ -1,5 +1,7 @@
 //! The binary response.
 
+use core::fmt;
+
 use crate::{
     bytesrepr::{self, Bytes, FromBytes, ToBytes, U8_SERIALIZED_LENGTH},
     BlockHash, BlockHashAndHeight, PeersMap,
@@ -8,6 +10,7 @@ use crate::{
 use super::{binary_request::BinaryRequest, db_id::DbId, DbRawBytesSpec, PROTOCOL_VERSION};
 
 #[repr(u8)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum PayloadType {
     BlockHeaderV1,
     BlockHeader,
@@ -82,6 +85,32 @@ impl From<BlockHash> for PayloadType {
 impl From<PeersMap> for PayloadType {
     fn from(_: PeersMap) -> Self {
         Self::PeersMap
+    }
+}
+
+impl fmt::Display for PayloadType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PayloadType::BlockHeaderV1 => write!(f, "BlockHeaderV1"),
+            PayloadType::BlockHeader => write!(f, "BlockHeader"),
+            PayloadType::BlockBodyV1 => write!(f, "BlockBodyV1"),
+            PayloadType::BlockBody => write!(f, "BlockBody"),
+            PayloadType::ApprovalsHashes => write!(f, "ApprovalsHashes"),
+            PayloadType::ApprovalsHashesV1 => write!(f, "ApprovalsHashesV1"),
+            PayloadType::BlockSignatures => write!(f, "BlockSignatures"),
+            PayloadType::Deploy => write!(f, "Deploy"),
+            PayloadType::Transaction => write!(f, "Transaction"),
+            PayloadType::ExecutionResultV1 => write!(f, "ExecutionResultV1"),
+            PayloadType::ExecutionResult => write!(f, "ExecutionResult"),
+            PayloadType::VecTransfers => write!(f, "VecTransfers"),
+            PayloadType::VecU8 => write!(f, "VecU8"),
+            PayloadType::FinalizedDeployApprovals => write!(f, "FinalizedDeployApprovals"),
+            PayloadType::FinalizedApprovals => write!(f, "FinalizedApprovals"),
+            PayloadType::Bool => write!(f, "Bool"),
+            PayloadType::BlockHashAndHeight => write!(f, "BlockHashAndHeight"),
+            PayloadType::BlockHash => write!(f, "BlockHash"),
+            PayloadType::PeersMap => write!(f, "PeersMap"),
+        }
     }
 }
 
@@ -190,8 +219,12 @@ impl BinaryResponseHeader {
         }
     }
 
-    pub fn returned_data_type(&self) -> Option<&PayloadType> {
-        self.returned_data_type.as_ref()
+    pub fn returned_data_type(&self) -> Option<PayloadType> {
+        self.returned_data_type
+    }
+
+    pub fn error(&self) -> u8 {
+        self.error
     }
 }
 
