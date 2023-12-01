@@ -1,11 +1,12 @@
 //! The payload type.
 
+use alloc::vec::Vec;
 use core::fmt;
 
 use crate::{
     bytesrepr::{self, FromBytes, ToBytes, U8_SERIALIZED_LENGTH},
-    AvailableBlockRange, BlockHash, BlockHashAndHeight, BlockSynchronizerStatus, ChainspecRawBytes,
-    NextUpgrade, Peers, PublicKey, ReactorState, TimeDiff, Uptime,
+    AvailableBlockRange, BlockHash, BlockHashAndHeight, BlockSynchronizerStatus, Peers, PublicKey,
+    ReactorState, TimeDiff, Uptime,
 };
 
 use super::{
@@ -202,8 +203,9 @@ impl From<ConsensusValidatorChanges> for PayloadType {
     }
 }
 
-impl From<NextUpgrade> for PayloadType {
-    fn from(_: NextUpgrade) -> Self {
+#[cfg(any(feature = "std", test))]
+impl From<crate::NextUpgrade> for PayloadType {
+    fn from(_: crate::NextUpgrade) -> Self {
         Self::NextUpgrade
     }
 }
@@ -214,8 +216,9 @@ impl From<(PublicKey, Option<TimeDiff>)> for PayloadType {
     }
 }
 
-impl From<ChainspecRawBytes> for PayloadType {
-    fn from(_: ChainspecRawBytes) -> Self {
+#[cfg(any(feature = "std", test))]
+impl From<crate::ChainspecRawBytes> for PayloadType {
+    fn from(_: crate::ChainspecRawBytes) -> Self {
         Self::ChainspecRawBytes
     }
 }
