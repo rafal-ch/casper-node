@@ -39,10 +39,10 @@ pub use deploy::{
     runtime_args, Deploy, DeployApproval, DeployApprovalsHash, DeployConfigFailure,
     DeployDecodeFromJsonError, DeployError, DeployExcessiveSizeError, DeployFootprint, DeployHash,
     DeployHeader, DeployId, EntityIdentifier, ExecutableDeployItem, ExecutableDeployItemIdentifier,
-    PackageIdentifier, TransferTarget,
+    FinalizedDeployApprovals, PackageIdentifier, TransferTarget,
 };
 #[cfg(any(feature = "std", test))]
-pub use deploy::{DeployBuilder, DeployBuilderError, FinalizedDeployApprovals};
+pub use deploy::{DeployBuilder, DeployBuilderError};
 pub use execution_info::ExecutionInfo;
 pub use finalized_approvals::FinalizedApprovals;
 pub use transaction_approvals_hash::TransactionApprovalsHash;

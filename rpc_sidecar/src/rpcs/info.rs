@@ -51,7 +51,7 @@ static GET_TRANSACTION_RESULT: Lazy<GetTransactionResult> = Lazy::new(|| GetTran
 });
 static GET_PEERS_RESULT: Lazy<GetPeersResult> = Lazy::new(|| GetPeersResult {
     api_version: DOCS_EXAMPLE_PROTOCOL_VERSION,
-    peers: Some((format!("tls:{:0<128}", ""), "127.0.0.1:54321".to_owned()))
+    peers: Some(("tls:0101..0101".to_owned(), "127.0.0.1:54321".to_owned()))
         .into_iter()
         .collect::<BTreeMap<_, _>>()
         .into(),
@@ -154,8 +154,12 @@ impl RpcWithParams for GetDeploy {
         params: Self::RequestParams,
     ) -> Result<Self::ResponseResult, RpcError> {
         let hash = TransactionHash::from(params.deploy_hash);
-        let (transaction, approvals) =
-            common::get_transaction_with_approvals(&*node_client, hash).await?;
+        let (transaction, approvals) = common::get_transaction_with_approvals(&*node_client, hash)
+            .await
+            .map_err(|err| match err {
+                Error::NoTransactionWithHash(_) => Error::NoDeployWithHash(params.deploy_hash),
+                other => other,
+            })?;
 
         let deploy = match (transaction, approvals) {
             (Transaction::Deploy(deploy), Some(FinalizedApprovals::Deploy(approvals)))
@@ -357,8 +361,6 @@ pub struct GetValidatorChangesResult {
 }
 
 impl GetValidatorChangesResult {
-    // TODO: will be used
-    #[allow(unused)]
     pub(crate) fn new(
         api_version: ProtocolVersion,
         changes: BTreeMap<PublicKey, Vec<(EraId, ValidatorChange)>>,
@@ -398,10 +400,14 @@ impl RpcWithoutParams for GetValidatorChanges {
     type ResponseResult = GetValidatorChangesResult;
 
     async fn do_handle_request(
-        _node_client: Arc<dyn NodeClient>,
-        _api_version: ProtocolVersion,
+        node_client: Arc<dyn NodeClient>,
+        api_version: ProtocolVersion,
     ) -> Result<Self::ResponseResult, RpcError> {
-        todo!()
+        let changes = node_client
+            .read_validator_changes()
+            .await
+            .map_err(|err| Error::NodeRequest("validator changes", err))?;
+        Ok(Self::ResponseResult::new(api_version, changes))
     }
 }
 
@@ -598,12 +604,17 @@ impl RpcWithoutParams for GetStatus {
             .read_block_hash_from_height(available_block_range.low())
             .await
             .map_err(|err| Error::NodeRequest("lowest block hash", err))?
-            .ok_or_else(|| Error::NoBlockAtHeight(available_block_range.low()))?;
+            .ok_or_else(|| {
+                Error::NoBlockAtHeight(available_block_range.low(), available_block_range)
+            })?;
         let lowest_block_header = node_client
             .read_block_header(lowest_block_hash)
             .await
             .map_err(|err| Error::NodeRequest("lowest block header", err))?
-            .ok_or(Error::NoBlockWithHash(lowest_block_hash))?;
+            .ok_or(Error::NoBlockWithHash(
+                lowest_block_hash,
+                available_block_range,
+            ))?;
 
         Ok(Self::ResponseResult {
             peers,

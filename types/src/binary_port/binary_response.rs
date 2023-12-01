@@ -34,8 +34,12 @@ impl BinaryResponseHeader {
     }
 
     /// Returns the type of the returned data.
-    pub fn returned_data_type(&self) -> Option<&PayloadType> {
-        self.returned_data_type.as_ref()
+    pub fn returned_data_type(&self) -> Option<PayloadType> {
+        self.returned_data_type
+    }
+
+    pub fn error(&self) -> u8 {
+        self.error
     }
 }
 
