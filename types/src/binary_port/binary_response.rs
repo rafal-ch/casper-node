@@ -159,6 +159,10 @@ impl BinaryResponse {
             },
         }
     }
+
+    pub fn is_error(&self) -> bool {
+        self.header.error() != Error::NoError as u8
+    }
 }
 
 impl ToBytes for BinaryResponse {
