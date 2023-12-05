@@ -17,7 +17,6 @@ use super::{
 };
 use casper_types::{
     account::{Account, AccountHash},
-    binary_port::get_all_values::GetAllValuesResult,
     bytesrepr::Bytes,
     package::PackageKindTag,
     system::{

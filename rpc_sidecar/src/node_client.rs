@@ -10,7 +10,6 @@ use casper_types::{
         binary_response::BinaryResponse,
         db_id::DbId,
         get::GetRequest,
-        get_all_values::GetAllValuesResult,
         global_state::GlobalStateQueryResult,
         non_persistent_data::NonPersistedDataRequest,
         type_wrappers::{
@@ -149,13 +148,12 @@ pub trait NodeClient: Send + Sync {
         parse_response::<BlockHash>(&resp)
     }
 
-    async fn does_exist_in_completed_blocks(
-        &self,
-        block_hash: BlockHash,
-    ) -> Result<HighestBlockSequenceCheckResult, Error> {
+    async fn does_exist_in_completed_blocks(&self, block_hash: BlockHash) -> Result<bool, Error> {
         let req = NonPersistedDataRequest::CompletedBlocksContain { block_hash };
         let resp = self.read_from_mem(req).await?;
-        parse_response::<HighestBlockSequenceCheckResult>(&resp)?.ok_or(Error::EmptyEnvelope)
+        parse_response::<HighestBlockSequenceCheckResult>(&resp)?
+            .map(bool::from)
+            .ok_or(Error::EmptyEnvelope)
     }
 
     async fn read_peers(&self) -> Result<Peers, Error> {
@@ -166,7 +164,7 @@ pub trait NodeClient: Send + Sync {
     async fn read_uptime(&self) -> Result<Duration, Error> {
         let resp = self.read_from_mem(NonPersistedDataRequest::Uptime).await?;
         parse_response::<Uptime>(&resp)?
-            .map(Into::into)
+            .map(Duration::from)
             .ok_or(Error::EmptyEnvelope)
     }
 
@@ -175,7 +173,7 @@ pub trait NodeClient: Send + Sync {
             .read_from_mem(NonPersistedDataRequest::LastProgress)
             .await?;
         parse_response::<LastProgress>(&resp)?
-            .map(Into::into)
+            .map(Timestamp::from)
             .ok_or(Error::EmptyEnvelope)
     }
 
@@ -191,7 +189,7 @@ pub trait NodeClient: Send + Sync {
             .read_from_mem(NonPersistedDataRequest::NetworkName)
             .await?;
         parse_response::<NetworkName>(&resp)?
-            .map(Into::into)
+            .map(String::from)
             .ok_or(Error::EmptyEnvelope)
     }
 
@@ -408,7 +406,7 @@ impl NodeClient for JulietNodeClient {
         let get = GetRequest::Trie { trie_key };
         let resp = self.dispatch(BinaryRequest::Get(get)).await?;
         let res = parse_response::<GetTrieFullResult>(&resp)?.ok_or(Error::EmptyEnvelope)?;
-        Ok(res.into_inner().map(Into::into))
+        Ok(res.into_inner().map(<Vec<u8>>::from))
     }
 
     async fn query_global_state(
