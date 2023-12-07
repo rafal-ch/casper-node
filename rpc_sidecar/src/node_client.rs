@@ -9,12 +9,11 @@ use casper_types::{
         binary_request::BinaryRequest,
         db_id::DbId,
         get::GetRequest,
-        get_all_values::GetAllValuesResult,
         global_state::GlobalStateQueryResult,
         non_persistent_data::NonPersistedDataRequest,
         type_wrappers::{
             ConsensusValidatorChanges, GetTrieFullResult, HighestBlockSequenceCheckResult,
-            LastProgress, NetworkName, SpeculativeExecutionResult,
+            LastProgress, NetworkName, SpeculativeExecutionResult, StoredValues,
         },
         ErrorCode as BinaryPortError,
     },
@@ -63,7 +62,7 @@ pub trait NodeClient: Send + Sync {
         &self,
         state_root_hash: Digest,
         tag: KeyTag,
-    ) -> Result<GetAllValuesResult, Error>;
+    ) -> Result<StoredValues, Error>;
 
     async fn try_accept_transaction(&self, transaction: Transaction) -> Result<(), Error>;
 
@@ -151,13 +150,12 @@ pub trait NodeClient: Send + Sync {
         parse_response::<BlockHash>(&resp.into())
     }
 
-    async fn does_exist_in_completed_blocks(
-        &self,
-        block_hash: BlockHash,
-    ) -> Result<HighestBlockSequenceCheckResult, Error> {
+    async fn does_exist_in_completed_blocks(&self, block_hash: BlockHash) -> Result<bool, Error> {
         let req = NonPersistedDataRequest::CompletedBlocksContain { block_hash };
         let resp = self.read_from_mem(req).await?;
-        parse_response::<HighestBlockSequenceCheckResult>(&resp.into())?.ok_or(Error::EmptyEnvelope)
+        parse_response::<HighestBlockSequenceCheckResult>(&resp.into())?
+            .map(bool::from)
+            .ok_or(Error::EmptyEnvelope)
     }
 
     async fn read_peers(&self) -> Result<Peers, Error> {
@@ -168,7 +166,7 @@ pub trait NodeClient: Send + Sync {
     async fn read_uptime(&self) -> Result<Duration, Error> {
         let resp = self.read_from_mem(NonPersistedDataRequest::Uptime).await?;
         parse_response::<Uptime>(&resp.into())?
-            .map(Into::into)
+            .map(Duration::from)
             .ok_or(Error::EmptyEnvelope)
     }
 
@@ -177,7 +175,7 @@ pub trait NodeClient: Send + Sync {
             .read_from_mem(NonPersistedDataRequest::LastProgress)
             .await?;
         parse_response::<LastProgress>(&resp.into())?
-            .map(Into::into)
+            .map(Timestamp::from)
             .ok_or(Error::EmptyEnvelope)
     }
 
@@ -193,7 +191,7 @@ pub trait NodeClient: Send + Sync {
             .read_from_mem(NonPersistedDataRequest::NetworkName)
             .await?;
         parse_response::<NetworkName>(&resp.into())?
-            .map(Into::into)
+            .map(String::from)
             .ok_or(Error::EmptyEnvelope)
     }
 
@@ -273,20 +271,20 @@ pub enum Error {
 impl Error {
     fn from_error_code(code: u8) -> Self {
         match BinaryPortError::try_from(code) {
-            Ok(BinaryPortError::FunctionIsDisabled) => Error::FunctionIsDisabled,
-            Ok(BinaryPortError::InvalidDeploy) => Error::InvalidDeploy,
-            Ok(BinaryPortError::RootNotFound) => Error::UnknownStateRootHash,
-            Ok(BinaryPortError::QueryFailedToExecute) => Error::QueryFailedToExecute,
+            Ok(BinaryPortError::FunctionIsDisabled) => Self::FunctionIsDisabled,
+            Ok(BinaryPortError::InvalidDeploy) => Self::InvalidDeploy,
+            Ok(BinaryPortError::RootNotFound) => Self::UnknownStateRootHash,
+            Ok(BinaryPortError::QueryFailedToExecute) => Self::QueryFailedToExecute,
             Ok(
                 err @ (BinaryPortError::WasmPreprocessing
                 | BinaryPortError::InvalidProtocolVersion
                 | BinaryPortError::InvalidDeployItemVariant),
-            ) => Error::SpecExecutionFailed(err.to_string()),
-            Ok(err) => Error::UnexpectedNodeError {
+            ) => Self::SpecExecutionFailed(err.to_string()),
+            Ok(err) => Self::UnexpectedNodeError {
                 message: err.to_string(),
                 code,
             },
-            Err(err) => Error::UnexpectedNodeError {
+            Err(err) => Self::UnexpectedNodeError {
                 message: err.to_string(),
                 code,
             },
@@ -413,7 +411,7 @@ impl NodeClient for JulietNodeClient {
         let get = GetRequest::Trie { trie_key };
         let resp = self.dispatch(BinaryRequest::Get(get)).await?;
         let res = parse_response::<GetTrieFullResult>(&resp.into())?.ok_or(Error::EmptyEnvelope)?;
-        Ok(res.into_inner().map(Into::into))
+        Ok(res.into_inner().map(<Vec<u8>>::from))
     }
 
     async fn query_global_state(
@@ -435,13 +433,13 @@ impl NodeClient for JulietNodeClient {
         &self,
         state_root_hash: Digest,
         key_tag: KeyTag,
-    ) -> Result<GetAllValuesResult, Error> {
+    ) -> Result<StoredValues, Error> {
         let get = GetRequest::AllValues {
             state_root_hash,
             key_tag,
         };
         let resp = self.dispatch(BinaryRequest::Get(get)).await?;
-        parse_response::<GetAllValuesResult>(&resp.into())?.ok_or(Error::EmptyEnvelope)
+        parse_response::<StoredValues>(&resp.into())?.ok_or(Error::EmptyEnvelope)
     }
 
     async fn try_accept_transaction(&self, transaction: Transaction) -> Result<(), Error> {
@@ -652,7 +650,7 @@ impl PayloadEntity for GlobalStateQueryResult {
     const PAYLOAD_TYPE: PayloadType = PayloadType::GlobalStateQueryResult;
 }
 
-impl PayloadEntity for GetAllValuesResult {
+impl PayloadEntity for StoredValues {
     const PAYLOAD_TYPE: PayloadType = PayloadType::StoredValues;
 }
 

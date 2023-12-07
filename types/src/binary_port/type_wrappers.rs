@@ -145,6 +145,12 @@ impl FromBytes for HighestBlockSequenceCheckResult {
     }
 }
 
+impl From<HighestBlockSequenceCheckResult> for bool {
+    fn from(highest_block_sequence_check_result: HighestBlockSequenceCheckResult) -> Self {
+        highest_block_sequence_check_result.0
+    }
+}
+
 /// Type representing results of the speculative execution.
 #[derive(Debug)]
 pub struct SpeculativeExecutionResult(pub Option<(ExecutionResultV2, Messages)>);
@@ -204,6 +210,13 @@ impl FromBytes for GetTrieFullResult {
 /// Type representing successful result of GetAllValues request.
 #[derive(Debug)]
 pub struct StoredValues(pub Vec<StoredValue>);
+
+impl StoredValues {
+    /// Returns the inner value.
+    pub fn into_inner(self) -> Vec<StoredValue> {
+        self.0
+    }
+}
 
 impl ToBytes for StoredValues {
     fn to_bytes(&self) -> Result<Vec<u8>, bytesrepr::Error> {

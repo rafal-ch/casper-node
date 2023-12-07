@@ -2,6 +2,7 @@ use crate::{
     bytesrepr::{self, FromBytes, ToBytes},
     ErrorCode, PayloadType,
 };
+use alloc::vec::Vec;
 
 use super::PROTOCOL_VERSION;
 
