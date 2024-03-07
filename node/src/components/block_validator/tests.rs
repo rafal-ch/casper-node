@@ -516,74 +516,72 @@ async fn transfer_deploy_mixup_and_replay() {
     let mut rng = TestRng::new();
     let ttl = TimeDiff::from_millis(200);
     let timestamp = Timestamp::from(1000);
-    let deploy_legacy = Transaction::from(new_legacy_deploy(&mut rng, timestamp, ttl));
-    let transaction_v1 = Transaction::from(new_v1_standard(&mut rng, timestamp, ttl));
+    let txn_legacy = Transaction::from(new_legacy_deploy(&mut rng, timestamp, ttl));
+    let txn_v1 = Transaction::from(new_v1_standard(&mut rng, timestamp, ttl));
     let transfer_legacy = Transaction::from(new_legacy_transfer(&mut rng, timestamp, ttl));
     let transfer_v1 = Transaction::from(new_v1_transfer(&mut rng, timestamp, ttl));
 
+    let txn_legacy_stray = Transaction::from(new_legacy_deploy(&mut rng, timestamp, ttl));
+    let txn_v1_stray = Transaction::from(new_v1_standard(&mut rng, timestamp, ttl));
+    let transfer_legacy_stray = Transaction::from(new_legacy_transfer(&mut rng, timestamp, ttl));
+    let transfer_v1_stray = Transaction::from(new_v1_transfer(&mut rng, timestamp, ttl));
+
     // First we make sure that our transfers and deploys would normally be valid.
-    let transactions = vec![deploy_legacy.clone(), transaction_v1.clone()];
+    let transactions = vec![txn_legacy.clone(), txn_v1.clone()];
     let transfers = vec![transfer_legacy.clone(), transfer_v1.clone()];
     assert!(validate_block(&mut rng, timestamp, transactions, transfers, vec![], vec![]).await);
 
-    // Now we test for different invalid combinations of deploys and transfers:
+    // Now we test for different invalid combinations of deploys and transfers.
+    // Each transaction must have unique hash.
     // 1. Legacy transfer in the deploys/transactions section.
     let transactions = vec![
-        transfer_legacy.clone(),
-        transaction_v1.clone(),
-        deploy_legacy.clone(),
+        transfer_legacy_stray.clone(), // Doesn't belong here.
+        txn_v1.clone(),
+        txn_legacy.clone(),
     ];
     let transfers = vec![transfer_legacy.clone(), transfer_v1.clone()];
     assert!(!validate_block(&mut rng, timestamp, transactions, transfers, vec![], vec![]).await);
     // 2. V1 transfer in the deploys/transactions section.
     let transactions = vec![
-        transfer_v1.clone(),
-        transaction_v1.clone(),
-        deploy_legacy.clone(),
+        transfer_v1_stray.clone(), // Doesn't belong here.
+        txn_v1.clone(),
+        txn_legacy.clone(),
     ];
     let transfers = vec![transfer_legacy.clone(), transfer_v1.clone()];
     assert!(!validate_block(&mut rng, timestamp, transactions, transfers, vec![], vec![]).await);
     // 3. Legacy deploy in the transfers section.
-    let transactions = vec![transaction_v1.clone(), deploy_legacy.clone()];
+    let transactions = vec![txn_v1.clone(), txn_legacy.clone()];
     let transfers = vec![
         transfer_legacy.clone(),
         transfer_v1.clone(),
-        deploy_legacy.clone(),
+        txn_legacy_stray.clone(), // Doesn't belong here.
     ];
     assert!(!validate_block(&mut rng, timestamp, transactions, transfers, vec![], vec![]).await);
     // 4. V1 transaction in the transfers section.
-    let transactions = vec![transaction_v1.clone(), deploy_legacy.clone()];
+    let transactions = vec![txn_v1.clone(), txn_legacy.clone()];
     let transfers = vec![
         transfer_legacy.clone(),
         transfer_v1.clone(),
-        transaction_v1.clone(),
+        txn_v1_stray.clone(), // Doesn't belong here.
     ];
     assert!(!validate_block(&mut rng, timestamp, transactions, transfers, vec![], vec![]).await);
     // Each transaction must be unique
-    let transactions = vec![
-        deploy_legacy.clone(),
-        transaction_v1.clone(),
-        deploy_legacy.clone(),
-    ];
+    let transactions = vec![txn_legacy.clone(), txn_v1.clone(), txn_legacy.clone()];
     let transfers = vec![transfer_legacy.clone(), transfer_v1.clone()];
     assert!(!validate_block(&mut rng, timestamp, transactions, transfers, vec![], vec![]).await);
-    let deploys = vec![
-        transaction_v1.clone(),
-        deploy_legacy.clone(),
-        transaction_v1.clone(),
-    ];
+    let deploys = vec![txn_v1.clone(), txn_legacy.clone(), txn_v1.clone()];
     let transfers = vec![transfer_legacy.clone(), transfer_v1.clone()];
     assert!(!validate_block(&mut rng, timestamp, deploys, transfers, vec![], vec![]).await);
 
     // And each transfer must be unique, too.
-    let transactions = vec![deploy_legacy.clone(), transaction_v1.clone()];
+    let transactions = vec![txn_legacy.clone(), txn_v1.clone()];
     let transfers = vec![
         transfer_legacy.clone(),
         transfer_v1.clone(),
         transfer_legacy.clone(),
     ];
     assert!(!validate_block(&mut rng, timestamp, transactions, transfers, vec![], vec![]).await);
-    let transactions = vec![deploy_legacy.clone(), transaction_v1.clone()];
+    let transactions = vec![txn_legacy.clone(), txn_v1.clone()];
     let transfers = vec![
         transfer_legacy.clone(),
         transfer_v1.clone(),
