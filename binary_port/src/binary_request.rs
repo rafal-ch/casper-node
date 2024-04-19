@@ -57,7 +57,7 @@ impl codec::Decoder for BinaryRequestCodec {
             return Ok(None);
         }
         let length = LengthEncoding::from_le_bytes([src[0], src[1], src[2], src[3]]) as usize;
-        if src.len() < length {
+        if src.len() < length + LENGTH_ENCODING_SIZE_BYTES {
             // Not enough bytes to read the whole message.
             return Ok(None);
         }
@@ -308,9 +308,7 @@ mod tests {
     fn binary_request_codec() {
         let rng = &mut TestRng::new();
         let val = BinaryRequest::random(rng);
-
         let mut codec = BinaryRequestCodec {};
-
         let mut bytes = bytes::BytesMut::new();
         codec
             .encode(val.clone(), &mut bytes)
@@ -323,4 +321,59 @@ mod tests {
 
         assert_eq!(val, decoded);
     }
+
+    #[test]
+    fn binary_request_codec_should_not_decode_when_not_enough_bytes_to_decode_length() {
+        let rng = &mut TestRng::new();
+        let val = BinaryRequest::random(rng);
+        let mut codec = BinaryRequestCodec {};
+        let mut bytes = bytes::BytesMut::new();
+        codec
+            .encode(val.clone(), &mut bytes)
+            .expect("should encode");
+
+        let _ = bytes.split_off(LENGTH_ENCODING_SIZE_BYTES / 2);
+        let in_bytes = bytes.clone();
+        assert!(codec.decode(&mut bytes).expect("should decode").is_none());
+
+        // Ensure that the bytes are not consumed.
+        assert_eq!(in_bytes, bytes);
+    }
+
+    #[test]
+    fn binary_request_codec_should_not_decode_when_not_enough_bytes_to_decode_full_frame() {
+        let rng = &mut TestRng::new();
+        let val = BinaryRequest::random(rng);
+        let mut codec = BinaryRequestCodec {};
+        let mut bytes = bytes::BytesMut::new();
+        codec
+            .encode(val.clone(), &mut bytes)
+            .expect("should encode");
+
+        let _ = bytes.split_off(bytes.len() - 1);
+        let in_bytes = bytes.clone();
+        assert!(codec.decode(&mut bytes).expect("should decode").is_none());
+
+        // Ensure that the bytes are not consumed.
+        assert_eq!(in_bytes, bytes);
+    }
+
+    #[test]
+    fn binary_request_codec_should_leave_remainder_in_buffer() {
+        let rng = &mut TestRng::new();
+        let val = BinaryRequest::random(rng);
+        let mut codec = BinaryRequestCodec {};
+        let mut bytes = bytes::BytesMut::new();
+        codec
+            .encode(val.clone(), &mut bytes)
+            .expect("should encode");
+        let suffix = bytes::Bytes::from_static(b"suffix");
+        bytes.extend(&suffix);
+
+        let _ = codec.decode(&mut bytes);
+
+        // Ensure that the bytes are not consumed.
+        assert_eq!(bytes, suffix);
+    }
+
 }
