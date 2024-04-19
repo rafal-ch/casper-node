@@ -1,16 +1,78 @@
 use core::convert::TryFrom;
 
 use casper_types::{
-    bytesrepr::{self, FromBytes, ToBytes},
+    bytesrepr::{self, Bytes, FromBytes, ToBytes},
     ProtocolVersion, Transaction,
 };
+use tokio_util::{
+    bytes::{self, Buf},
+    codec,
+};
 
-use crate::get_request::GetRequest;
+use crate::{get_request::GetRequest, Error};
 
 #[cfg(test)]
 use casper_types::testing::TestRng;
 #[cfg(test)]
 use rand::Rng;
+
+type LengthEncoding = u32;
+const LENGTH_ENCODING_SIZE_BYTES: usize = std::mem::size_of::<LengthEncoding>();
+
+// TODO: Move to binary port
+pub const SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::from_parts(2, 0, 0);
+
+pub struct BinaryRequestCodec {}
+
+impl codec::Encoder<BinaryRequest> for BinaryRequestCodec {
+    type Error = Error;
+
+    fn encode(
+        &mut self,
+        item: BinaryRequest,
+        dst: &mut bytes::BytesMut,
+    ) -> Result<(), Self::Error> {
+        let header = BinaryRequestHeader::new(SUPPORTED_PROTOCOL_VERSION, item.tag());
+        let length = (header.serialized_length() + item.serialized_length()) as LengthEncoding;
+
+        // TODO: Can we write directly to 'dst'?
+        let mut bytes = Vec::with_capacity(length as usize);
+        header.write_bytes(&mut bytes)?;
+        item.write_bytes(&mut bytes)?;
+
+        let length_bytes = length.to_le_bytes();
+
+        dst.extend(length_bytes.iter().chain(bytes.iter()));
+        Ok(())
+    }
+}
+impl codec::Decoder for BinaryRequestCodec {
+    type Item = BinaryRequest;
+
+    type Error = Error;
+
+    fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        if src.len() < LENGTH_ENCODING_SIZE_BYTES {
+            // Not enough bytes to read the length.
+            return Ok(None);
+        }
+        let length = LengthEncoding::from_le_bytes([src[0], src[1], src[2], src[3]]) as usize;
+        if src.len() < length {
+            // Not enough bytes to read the whole message.
+            return Ok(None);
+        }
+
+        // TODO: Remove the 'handle_payload' function as it is only used in juliet-based implementation.
+        let serialized = &src[LENGTH_ENCODING_SIZE_BYTES..LENGTH_ENCODING_SIZE_BYTES + length];
+        let (header, remainder) =
+            BinaryRequestHeader::from_bytes(serialized).map_err(Error::BytesRepr)?;
+        let tag = BinaryRequestTag::try_from(header.type_tag())
+            .map_err(|err| Error::InvalidBinaryRequestTag(err.0))?;
+        let deserialized = BinaryRequest::try_from((tag, remainder)).map_err(Error::BytesRepr)?;
+        src.advance(LENGTH_ENCODING_SIZE_BYTES + length);
+        Ok(Some(deserialized))
+    }
+}
 
 /// The header of a binary request.
 #[derive(Debug, PartialEq)]
@@ -79,7 +141,7 @@ impl FromBytes for BinaryRequestHeader {
 }
 
 /// A request to the binary access interface.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum BinaryRequest {
     /// Request to get data from the node
     Get(GetRequest),
@@ -216,12 +278,14 @@ impl From<BinaryRequestTag> for u8 {
 }
 
 /// Error raised when trying to convert an invalid u8 into a `BinaryRequestTag`.
+// Move to Error?
 pub struct InvalidBinaryRequestTag(u8);
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use casper_types::testing::TestRng;
+    use tokio_util::codec::{Decoder, Encoder};
 
     #[test]
     fn header_bytesrepr_roundtrip() {
@@ -238,5 +302,25 @@ mod tests {
         let val = BinaryRequest::random(rng);
         let bytes = val.to_bytes().expect("should serialize");
         assert_eq!(BinaryRequest::try_from((val.tag(), &bytes[..])), Ok(val));
+    }
+
+    #[test]
+    fn binary_request_codec() {
+        let rng = &mut TestRng::new();
+        let val = BinaryRequest::random(rng);
+
+        let mut codec = BinaryRequestCodec {};
+
+        let mut bytes = bytes::BytesMut::new();
+        codec
+            .encode(val.clone(), &mut bytes)
+            .expect("should encode");
+
+        let decoded = codec
+            .decode(&mut bytes)
+            .expect("should decode")
+            .expect("should be Some");
+
+        assert_eq!(val, decoded);
     }
 }
