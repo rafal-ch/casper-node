@@ -18,6 +18,8 @@ use rand::Rng;
 
 type LengthEncoding = u32;
 const LENGTH_ENCODING_SIZE_BYTES: usize = std::mem::size_of::<LengthEncoding>();
+// TODO: To config
+const MAX_REQUEST_SIZE_BYTES: usize = 1024 * 1024; // 1MB
 
 // TODO: Move to binary port
 pub const SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::from_parts(2, 0, 0);
@@ -57,6 +59,12 @@ impl codec::Decoder for BinaryRequestCodec {
             return Ok(None);
         }
         let length = LengthEncoding::from_le_bytes([src[0], src[1], src[2], src[3]]) as usize;
+        if length > MAX_REQUEST_SIZE_BYTES {
+            return Err(Error::RequestTooLarge {
+                allowed: MAX_REQUEST_SIZE_BYTES,
+                got: length,
+            });
+        }
         if src.len() < length + LENGTH_ENCODING_SIZE_BYTES {
             // Not enough bytes to read the whole message.
             return Ok(None);
@@ -376,4 +384,16 @@ mod tests {
         assert_eq!(bytes, suffix);
     }
 
+    #[test]
+    fn binary_request_codec_should_bail_on_too_large_request() {
+        let mut codec = BinaryRequestCodec {};
+        let mut bytes = bytes::BytesMut::new();
+        let too_large = MAX_REQUEST_SIZE_BYTES + 1;
+        bytes.extend(&too_large.to_le_bytes());
+
+        let result = codec.decode(&mut bytes).unwrap_err();
+        assert!(
+            matches!(result, Error::RequestTooLarge { allowed, got } if allowed == MAX_REQUEST_SIZE_BYTES && got == too_large)
+        );
+    }
 }

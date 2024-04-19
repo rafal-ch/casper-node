@@ -4,6 +4,8 @@ use thiserror::Error;
 pub enum Error {
     #[error("Invalid request tag ({0})")]
     InvalidBinaryRequestTag(u8),
+    #[error("Request too large: allowed {allowed} bytes, got {got} bytes")]
+    RequestTooLarge { allowed: usize, got: usize },
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
