@@ -1,7 +1,7 @@
 use core::convert::TryFrom;
 
 use casper_types::{
-    bytesrepr::{self, Bytes, FromBytes, ToBytes},
+    bytesrepr::{self, FromBytes, ToBytes},
     ProtocolVersion, Transaction,
 };
 use tokio_util::{
@@ -70,7 +70,8 @@ impl codec::Decoder for BinaryRequestCodec {
             return Ok(None);
         }
 
-        // TODO: Remove the 'handle_payload' function as it is only used in juliet-based implementation.
+        // TODO: Remove the 'handle_payload' function as it is only used in juliet-based
+        // implementation.
         let serialized = &src[LENGTH_ENCODING_SIZE_BYTES..LENGTH_ENCODING_SIZE_BYTES + length];
         let (header, remainder) =
             BinaryRequestHeader::from_bytes(serialized).map_err(Error::BytesRepr)?;
@@ -336,9 +337,7 @@ mod tests {
         let val = BinaryRequest::random(rng);
         let mut codec = BinaryRequestCodec {};
         let mut bytes = bytes::BytesMut::new();
-        codec
-            .encode(val.clone(), &mut bytes)
-            .expect("should encode");
+        codec.encode(val, &mut bytes).expect("should encode");
 
         let _ = bytes.split_off(LENGTH_ENCODING_SIZE_BYTES / 2);
         let in_bytes = bytes.clone();
@@ -354,9 +353,7 @@ mod tests {
         let val = BinaryRequest::random(rng);
         let mut codec = BinaryRequestCodec {};
         let mut bytes = bytes::BytesMut::new();
-        codec
-            .encode(val.clone(), &mut bytes)
-            .expect("should encode");
+        codec.encode(val, &mut bytes).expect("should encode");
 
         let _ = bytes.split_off(bytes.len() - 1);
         let in_bytes = bytes.clone();
@@ -372,9 +369,7 @@ mod tests {
         let val = BinaryRequest::random(rng);
         let mut codec = BinaryRequestCodec {};
         let mut bytes = bytes::BytesMut::new();
-        codec
-            .encode(val.clone(), &mut bytes)
-            .expect("should encode");
+        codec.encode(val, &mut bytes).expect("should encode");
         let suffix = bytes::Bytes::from_static(b"suffix");
         bytes.extend(&suffix);
 
@@ -392,8 +387,7 @@ mod tests {
         bytes.extend(&too_large.to_le_bytes());
 
         let result = codec.decode(&mut bytes).unwrap_err();
-        assert!(
-            matches!(result, Error::RequestTooLarge { allowed, got } if allowed == MAX_REQUEST_SIZE_BYTES && got == too_large)
-        );
+        assert!(matches!(result, Error::RequestTooLarge { allowed, got }
+                 if allowed == MAX_REQUEST_SIZE_BYTES && got == too_large));
     }
 }
