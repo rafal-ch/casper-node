@@ -6,6 +6,8 @@ pub enum Error {
     InvalidBinaryRequestTag(u8),
     #[error("Request too large: allowed {allowed} bytes, got {got} bytes")]
     RequestTooLarge { allowed: usize, got: usize },
+    #[error("Empty request")]
+    EmptyRequest,
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]

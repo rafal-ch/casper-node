@@ -65,6 +65,9 @@ impl codec::Decoder for BinaryRequestCodec {
                 got: length,
             });
         }
+        if length == 0 {
+            return Err(Error::EmptyRequest);
+        }
         if src.len() < length + LENGTH_ENCODING_SIZE_BYTES {
             // Not enough bytes to read the whole message.
             return Ok(None);
@@ -383,11 +386,22 @@ mod tests {
     fn binary_request_codec_should_bail_on_too_large_request() {
         let mut codec = BinaryRequestCodec {};
         let mut bytes = bytes::BytesMut::new();
-        let too_large = MAX_REQUEST_SIZE_BYTES + 1;
+        let too_large = (MAX_REQUEST_SIZE_BYTES + 1) as LengthEncoding;
         bytes.extend(&too_large.to_le_bytes());
 
         let result = codec.decode(&mut bytes).unwrap_err();
         assert!(matches!(result, Error::RequestTooLarge { allowed, got }
-                 if allowed == MAX_REQUEST_SIZE_BYTES && got == too_large));
+                 if allowed == MAX_REQUEST_SIZE_BYTES && got == too_large as usize));
+    }
+
+    #[test]
+    fn binary_request_codec_should_bail_on_empty_request() {
+        let mut codec = BinaryRequestCodec {};
+        let mut bytes = bytes::BytesMut::new();
+        let empty = 0 as LengthEncoding;
+        bytes.extend(&empty.to_le_bytes());
+
+        let result = codec.decode(&mut bytes).unwrap_err();
+        assert!(matches!(result, Error::EmptyRequest));
     }
 }
