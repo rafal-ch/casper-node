@@ -1367,6 +1367,7 @@ where
     t.write_bytes(&mut written_bytes)
         .expect("Unable to serialize data via write_bytes");
     assert_eq!(serialized, written_bytes);
+    dbg!(written_bytes.len());
 
     let deserialized_from_slice =
         deserialize_from_slice(&serialized).expect("Unable to deserialize data");

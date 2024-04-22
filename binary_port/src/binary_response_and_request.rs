@@ -10,7 +10,7 @@ use crate::record_id::RecordId;
 use casper_types::testing::TestRng;
 
 /// The binary response along with the original binary request attached.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BinaryResponseAndRequest {
     /// The original request (as serialized bytes).
     original_request: Vec<u8>,

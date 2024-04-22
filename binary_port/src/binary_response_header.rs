@@ -10,7 +10,7 @@ use casper_types::testing::TestRng;
 use rand::Rng;
 
 /// Header of the binary response.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BinaryResponseHeader {
     protocol_version: ProtocolVersion,
     error: u8,

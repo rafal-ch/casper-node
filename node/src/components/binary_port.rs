@@ -8,13 +8,19 @@ mod tests;
 
 use std::{convert::TryFrom, net::SocketAddr, sync::Arc};
 
+// TODO[RC]: Merge these three
+use futures::TryStreamExt;
+use futures::{stream::StreamExt, SinkExt};
+use tokio::{net::TcpListener, sync::Semaphore};
+use tokio_util::codec::Framed;
+
 use bytes::Bytes;
 use casper_binary_port::{
-    BalanceResponse, BinaryRequest, BinaryRequestHeader, BinaryRequestTag, BinaryResponse,
-    BinaryResponseAndRequest, DictionaryItemIdentifier, DictionaryQueryResult, ErrorCode,
-    GetRequest, GetTrieFullResult, GlobalStateQueryResult, GlobalStateRequest, InformationRequest,
-    InformationRequestTag, NodeStatus, PayloadType, PurseIdentifier, ReactorStateName, RecordId,
-    TransactionWithExecutionInfo,
+    BalanceResponse, BinaryMessage, BinaryMessageCodec, BinaryRequest, BinaryRequestHeader,
+    BinaryRequestTag, BinaryResponse, BinaryResponseAndRequest, DictionaryItemIdentifier,
+    DictionaryQueryResult, ErrorCode, GetRequest, GetTrieFullResult, GlobalStateQueryResult,
+    GlobalStateRequest, InformationRequest, InformationRequestTag, NodeStatus, PayloadType,
+    PurseIdentifier, ReactorStateName, RecordId, TransactionWithExecutionInfo,
 };
 use casper_storage::{
     data_access_layer::{
@@ -34,19 +40,13 @@ use casper_types::{
 
 use datasize::DataSize;
 use futures::{future::BoxFuture, FutureExt};
-use juliet::{
-    io::IoCoreBuilder,
-    protocol::ProtocolBuilder,
-    rpc::{JulietRpcServer, RpcBuilder},
-    ChannelConfiguration, ChannelId,
-};
 use once_cell::sync::OnceCell;
 use prometheus::Registry;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     join,
-    net::{TcpListener, TcpStream},
-    sync::{Notify, OwnedSemaphorePermit, Semaphore},
+    net::TcpStream,
+    sync::{Notify, OwnedSemaphorePermit},
 };
 use tracing::{debug, error, info, warn};
 
@@ -799,13 +799,13 @@ where
     }
 }
 
-async fn client_loop<REv, const N: usize, R, W>(
-    mut server: JulietRpcServer<N, R, W>,
+async fn client_loop<REv>(
+    stream: TcpStream,
     effect_builder: EffectBuilder<REv>,
 ) -> Result<(), Error>
 where
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
+    // R: AsyncRead + Unpin,
+    // W: AsyncWrite + Unpin,
     REv: From<Event>
         + From<StorageRequest>
         + From<ContractRuntimeRequest>
@@ -818,50 +818,65 @@ where
         + From<ChainspecRawBytesRequest>
         + Send,
 {
-    loop {
-        let Some(incoming_request) = server.next_request().await? else {
-            debug!("remote party closed the connection");
-            return Ok(());
-        };
-
-        let Some(payload) = incoming_request.payload() else {
-            return Err(Error::NoPayload);
-        };
-
-        let version = effect_builder.get_protocol_version().await;
-        let resp = handle_payload(effect_builder, payload, version).await;
-        let resp_and_payload = BinaryResponseAndRequest::new(resp, payload);
-        incoming_request.respond(Some(Bytes::from(ToBytes::to_bytes(&resp_and_payload)?)))
+    let mut framed = Framed::new(stream, BinaryMessageCodec {});
+    while let Some(message) = framed.next().await.transpose().unwrap() {
+        let resp = handle_message(
+            effect_builder,
+            message,
+            effect_builder.get_protocol_version().await,
+        )
+        .await;
+        // TODO[RC]: Needs payload here instead of empty slice.
+        let resp_and_payload = BinaryResponseAndRequest::new(resp, &[]);
+        framed
+            .send(BinaryMessage::Response(resp_and_payload))
+            .await
+            .unwrap();
     }
+
+    Ok(())
+
+    // loop {
+    //     let Some(incoming_request) = server.next_request().await? else {
+    //         debug!("remote party closed the connection");
+    //         return Ok(());
+    //     };
+
+    //     let Some(payload) = incoming_request.payload() else {
+    //         return Err(Error::NoPayload);
+    //     };
+
+    //     let version = effect_builder.get_protocol_version().await;
+    //     let resp = handle_payload(effect_builder, payload, version).await;
+    //     // Have response here, encode here.
+    //     let resp_and_payload = BinaryResponseAndRequest::new(resp, payload);
+    //     incoming_request.respond(Some(Bytes::from(ToBytes::to_bytes(&resp_and_payload)?)))
+    // }
 }
 
-async fn handle_payload<REv>(
+// TODO[RC]: Responding here
+async fn handle_message<REv>(
     effect_builder: EffectBuilder<REv>,
-    payload: &[u8],
-    protocol_version: ProtocolVersion,
+    message: BinaryMessage,
+    supported_protocol_version: ProtocolVersion,
 ) -> BinaryResponse
 where
     REv: From<Event>,
 {
-    let Ok((header, remainder)) = BinaryRequestHeader::from_bytes(payload) else {
-        return BinaryResponse::new_error(ErrorCode::BadRequest, protocol_version);
+    let BinaryMessage::Request((header, request)) = message else {
+        // TODO[RC]: Got response instead of request
+        return BinaryResponse::new_error(ErrorCode::BadRequest, supported_protocol_version);
     };
 
     if !header
         .protocol_version()
-        .is_compatible_with(&protocol_version)
+        .is_compatible_with(&supported_protocol_version)
     {
-        return BinaryResponse::new_error(ErrorCode::UnsupportedProtocolVersion, protocol_version);
+        return BinaryResponse::new_error(
+            ErrorCode::UnsupportedProtocolVersion,
+            supported_protocol_version,
+        );
     }
-
-    // we might receive a request added in a minor version if we're behind
-    let Ok(tag) = BinaryRequestTag::try_from(header.type_tag()) else {
-        return BinaryResponse::new_error(ErrorCode::UnsupportedRequest, protocol_version);
-    };
-
-    let Ok(request) = BinaryRequest::try_from((tag, remainder)) else {
-        return BinaryResponse::new_error(ErrorCode::BadRequest, protocol_version);
-    };
 
     effect_builder
         .make_request(
@@ -873,7 +888,7 @@ where
 
 async fn handle_client<REv>(
     addr: SocketAddr,
-    mut client: TcpStream,
+    stream: TcpStream,
     effect_builder: EffectBuilder<REv>,
     config: Arc<Config>,
     _permit: OwnedSemaphorePermit,
@@ -890,12 +905,12 @@ async fn handle_client<REv>(
         + From<ChainspecRawBytesRequest>
         + Send,
 {
-    let (reader, writer) = client.split();
+    //let (reader, writer) = client.split();
     // We are a server, we won't make any requests of our own, but we need to keep the client
     // around, since dropping the client will trigger a server shutdown.
-    let (_client, server) = new_rpc_builder(&config).build(reader, writer);
+    // let (_client, server) = new_rpc_builder(&config).build(reader, writer);
 
-    if let Err(err) = client_loop(server, effect_builder).await {
+    if let Err(err) = client_loop(stream, effect_builder).await {
         // Low severity is used to prevent malicious clients from causing log floods.
         info!(%addr, err=display_error(&err), "binary port client handler error");
     }
@@ -975,17 +990,17 @@ impl Finalize for BinaryPort {
     }
 }
 
-fn new_rpc_builder(config: &Config) -> RpcBuilder<1> {
-    let protocol_builder = ProtocolBuilder::<1>::with_default_channel_config(
-        ChannelConfiguration::default()
-            .with_request_limit(config.client_request_limit)
-            .with_max_request_payload_size(config.max_request_size_bytes)
-            .with_max_response_payload_size(config.max_response_size_bytes),
-    );
-    let io_builder = IoCoreBuilder::new(protocol_builder)
-        .buffer_size(ChannelId::new(0), config.client_request_buffer_size);
-    RpcBuilder::new(io_builder)
-}
+// fn new_rpc_builder(config: &Config) -> RpcBuilder<1> {
+//     let protocol_builder = ProtocolBuilder::<1>::with_default_channel_config(
+//         ChannelConfiguration::default()
+//             .with_request_limit(config.client_request_limit)
+//             .with_max_request_payload_size(config.max_request_size_bytes)
+//             .with_max_response_payload_size(config.max_response_size_bytes),
+//     );
+//     let io_builder = IoCoreBuilder::new(protocol_builder)
+//         .buffer_size(ChannelId::new(0), config.client_request_buffer_size);
+//     RpcBuilder::new(io_builder)
+// }
 
 async fn resolve_block_header<REv>(
     effect_builder: EffectBuilder<REv>,

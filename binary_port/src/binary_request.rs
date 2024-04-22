@@ -1,15 +1,13 @@
 use core::convert::TryFrom;
 
+use bytes::Buf;
 use casper_types::{
-    bytesrepr::{self, FromBytes, ToBytes},
+    bytesrepr::{self, FromBytes, ToBytes, U8_SERIALIZED_LENGTH},
     ProtocolVersion, Transaction,
 };
-use tokio_util::{
-    bytes::{self, Buf},
-    codec,
-};
+use tokio_util::codec;
 
-use crate::{get_request::GetRequest, Error};
+use crate::{get_request::GetRequest, BinaryResponse, BinaryResponseAndRequest, Error};
 
 #[cfg(test)]
 use casper_types::testing::TestRng;
@@ -24,32 +22,115 @@ const MAX_REQUEST_SIZE_BYTES: usize = 1024 * 1024; // 1MB
 // TODO: Move to binary port
 pub const SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::from_parts(2, 0, 0);
 
-pub struct BinaryRequestCodec {}
+const REQUEST_TAG: u8 = 0;
+const RESPONSE_TAG: u8 = 1;
 
-impl codec::Encoder<BinaryRequest> for BinaryRequestCodec {
+// TODO[RC]: To dedicated file
+#[derive(Debug, Clone, PartialEq)]
+pub enum BinaryMessage {
+    Request((BinaryRequestHeader, BinaryRequest)),
+    Response(BinaryResponseAndRequest),
+}
+
+impl BinaryMessage {
+    #[cfg(test)]
+    pub(crate) fn random(rng: &mut TestRng) -> Self {
+        if rng.gen() {
+            let request = BinaryRequest::random(rng);
+            let header = BinaryRequestHeader::new(SUPPORTED_PROTOCOL_VERSION, request.tag());
+            BinaryMessage::Request((header, request))
+        } else {
+            BinaryMessage::Response(BinaryResponseAndRequest::random(rng))
+        }
+    }
+}
+
+impl ToBytes for BinaryMessage {
+    fn to_bytes(&self) -> Result<Vec<u8>, bytesrepr::Error> {
+        let mut buffer = bytesrepr::allocate_buffer(self)?;
+        self.write_bytes(&mut buffer)?;
+        Ok(buffer)
+    }
+
+    fn write_bytes(&self, writer: &mut Vec<u8>) -> Result<(), bytesrepr::Error> {
+        match self {
+            BinaryMessage::Request((header, request)) => {
+                REQUEST_TAG.write_bytes(writer)?;
+                header.write_bytes(writer)?;
+                request.write_bytes(writer)
+            }
+            BinaryMessage::Response(response) => {
+                RESPONSE_TAG.write_bytes(writer)?;
+                response.write_bytes(writer)
+            }
+        }
+    }
+
+    fn serialized_length(&self) -> usize {
+        U8_SERIALIZED_LENGTH
+            + match self {
+                BinaryMessage::Request(request) => request.serialized_length(),
+                BinaryMessage::Response(response) => response.serialized_length(),
+            }
+    }
+}
+
+impl FromBytes for BinaryMessage {
+    fn from_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), bytesrepr::Error> {
+        let (tag, remainder) = FromBytes::from_bytes(bytes)?;
+        match tag {
+            REQUEST_TAG => {
+                // TODO[RC]: Make sure these checks are in place
+                // we might receive a request added in a minor version if we're behind
+                // let Ok(tag) = BinaryRequestTag::try_from(header.type_tag()) else {
+                // return BinaryResponse::new_error(ErrorCode::UnsupportedRequest, supported_protocol_version);
+                // };
+
+                // let Ok(request) = BinaryRequest::try_from((tag, remainder)) else {
+                // return BinaryResponse::new_error(ErrorCode::BadRequest, supported_protocol_version);
+                // };
+
+                let (header, remainder) = BinaryRequestHeader::from_bytes(remainder)?;
+                let Ok(tag) = BinaryRequestTag::try_from(header.type_tag()) else {
+                    todo!(); // TODO[RC]: Error handling
+                    //return BinaryResponse::new_error(ErrorCode::UnsupportedRequest, protocol_version);
+                };
+                let request = BinaryRequest::try_from((tag, remainder))?;
+                // 'try_from' call above ensures that there are no leftover bytes.
+                Ok((BinaryMessage::Request((header, request)), &[]))
+            }
+            RESPONSE_TAG => {
+                let (response, remainder) = FromBytes::from_bytes(remainder)?;
+                Ok((BinaryMessage::Response(response), remainder))
+            }
+            _ => Err(bytesrepr::Error::Formatting),
+        }
+    }
+}
+
+pub struct BinaryMessageCodec {}
+
+impl codec::Encoder<BinaryMessage> for BinaryMessageCodec {
     type Error = Error;
 
     fn encode(
         &mut self,
-        item: BinaryRequest,
+        item: BinaryMessage,
         dst: &mut bytes::BytesMut,
     ) -> Result<(), Self::Error> {
-        let header = BinaryRequestHeader::new(SUPPORTED_PROTOCOL_VERSION, item.tag());
-        let length = (header.serialized_length() + item.serialized_length()) as LengthEncoding;
+        let length = item.serialized_length() as LengthEncoding;
 
         // TODO: Can we write directly to 'dst'?
         let mut bytes = Vec::with_capacity(length as usize);
-        header.write_bytes(&mut bytes)?;
         item.write_bytes(&mut bytes)?;
 
         let length_bytes = length.to_le_bytes();
-
         dst.extend(length_bytes.iter().chain(bytes.iter()));
         Ok(())
     }
 }
-impl codec::Decoder for BinaryRequestCodec {
-    type Item = BinaryRequest;
+impl codec::Decoder for BinaryMessageCodec {
+    type Item = BinaryMessage;
 
     type Error = Error;
 
@@ -76,18 +157,15 @@ impl codec::Decoder for BinaryRequestCodec {
         // TODO: Remove the 'handle_payload' function as it is only used in juliet-based
         // implementation.
         let serialized = &src[LENGTH_ENCODING_SIZE_BYTES..LENGTH_ENCODING_SIZE_BYTES + length];
-        let (header, remainder) =
-            BinaryRequestHeader::from_bytes(serialized).map_err(Error::BytesRepr)?;
-        let tag = BinaryRequestTag::try_from(header.type_tag())
-            .map_err(|err| Error::InvalidBinaryRequestTag(err.0))?;
-        let deserialized = BinaryRequest::try_from((tag, remainder)).map_err(Error::BytesRepr)?;
+        let (message, _remainder) =
+            BinaryMessage::from_bytes(serialized).map_err(Error::BytesRepr)?;
         src.advance(LENGTH_ENCODING_SIZE_BYTES + length);
-        Ok(Some(deserialized))
+        Ok(Some(message))
     }
 }
 
 /// The header of a binary request.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BinaryRequestHeader {
     protocol_version: ProtocolVersion,
     type_tag: u8,
@@ -317,10 +395,19 @@ mod tests {
     }
 
     #[test]
-    fn binary_request_codec() {
+    fn message_bytesrepr_roundtrip() {
         let rng = &mut TestRng::new();
-        let val = BinaryRequest::random(rng);
-        let mut codec = BinaryRequestCodec {};
+
+        let val = BinaryMessage::random(rng);
+
+        bytesrepr::test_serialization_roundtrip(&val);
+    }
+
+    #[test]
+    fn binary_message_codec() {
+        let rng = &mut TestRng::new();
+        let val = BinaryMessage::random(rng);
+        let mut codec = BinaryMessageCodec {};
         let mut bytes = bytes::BytesMut::new();
         codec
             .encode(val.clone(), &mut bytes)
@@ -335,10 +422,10 @@ mod tests {
     }
 
     #[test]
-    fn binary_request_codec_should_not_decode_when_not_enough_bytes_to_decode_length() {
+    fn binary_message_codec_should_not_decode_when_not_enough_bytes_to_decode_length() {
         let rng = &mut TestRng::new();
-        let val = BinaryRequest::random(rng);
-        let mut codec = BinaryRequestCodec {};
+        let val = BinaryMessage::random(rng);
+        let mut codec = BinaryMessageCodec {};
         let mut bytes = bytes::BytesMut::new();
         codec.encode(val, &mut bytes).expect("should encode");
 
@@ -351,10 +438,10 @@ mod tests {
     }
 
     #[test]
-    fn binary_request_codec_should_not_decode_when_not_enough_bytes_to_decode_full_frame() {
+    fn binary_message_codec_should_not_decode_when_not_enough_bytes_to_decode_full_frame() {
         let rng = &mut TestRng::new();
-        let val = BinaryRequest::random(rng);
-        let mut codec = BinaryRequestCodec {};
+        let val = BinaryMessage::random(rng);
+        let mut codec = BinaryMessageCodec {};
         let mut bytes = bytes::BytesMut::new();
         codec.encode(val, &mut bytes).expect("should encode");
 
@@ -367,10 +454,10 @@ mod tests {
     }
 
     #[test]
-    fn binary_request_codec_should_leave_remainder_in_buffer() {
+    fn binary_message_codec_should_leave_remainder_in_buffer() {
         let rng = &mut TestRng::new();
-        let val = BinaryRequest::random(rng);
-        let mut codec = BinaryRequestCodec {};
+        let val = BinaryMessage::random(rng);
+        let mut codec = BinaryMessageCodec {};
         let mut bytes = bytes::BytesMut::new();
         codec.encode(val, &mut bytes).expect("should encode");
         let suffix = bytes::Bytes::from_static(b"suffix");
@@ -383,8 +470,8 @@ mod tests {
     }
 
     #[test]
-    fn binary_request_codec_should_bail_on_too_large_request() {
-        let mut codec = BinaryRequestCodec {};
+    fn binary_message_codec_should_bail_on_too_large_request() {
+        let mut codec = BinaryMessageCodec {};
         let mut bytes = bytes::BytesMut::new();
         let too_large = (MAX_REQUEST_SIZE_BYTES + 1) as LengthEncoding;
         bytes.extend(&too_large.to_le_bytes());
@@ -395,8 +482,8 @@ mod tests {
     }
 
     #[test]
-    fn binary_request_codec_should_bail_on_empty_request() {
-        let mut codec = BinaryRequestCodec {};
+    fn binary_message_codec_should_bail_on_empty_request() {
+        let mut codec = BinaryMessageCodec {};
         let mut bytes = bytes::BytesMut::new();
         let empty = 0 as LengthEncoding;
         bytes.extend(&empty.to_le_bytes());

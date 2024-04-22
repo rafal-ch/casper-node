@@ -13,7 +13,7 @@ use crate::{
 use casper_types::testing::TestRng;
 
 /// The response used in the binary port protocol.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BinaryResponse {
     /// Header of the binary response.
     header: BinaryResponseHeader,
