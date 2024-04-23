@@ -863,7 +863,7 @@ async fn handle_message<REv>(
 where
     REv: From<Event>,
 {
-    let BinaryMessage::Request((header, request, _)) = message else {
+    let BinaryMessage::Request{ header, request, .. } = message else {
         // TODO[RC]: Got response instead of request
         return BinaryResponse::new_error(ErrorCode::BadRequest, supported_protocol_version);
     };

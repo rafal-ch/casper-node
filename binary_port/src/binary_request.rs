@@ -28,7 +28,11 @@ const RESPONSE_TAG: u8 = 1;
 // TODO[RC]: To dedicated file
 #[derive(Debug, Clone, PartialEq)]
 pub enum BinaryMessage {
-    Request((BinaryRequestHeader, BinaryRequest, Vec<u8>)),
+    Request {
+        header: BinaryRequestHeader,
+        request: BinaryRequest,
+        request_bytes: Vec<u8>,
+    },
     Response(BinaryResponseAndRequest),
 }
 
@@ -39,7 +43,11 @@ impl BinaryMessage {
             let request = BinaryRequest::random(rng);
             let request_bytes = request.to_bytes().expect("should serialize");
             let header = BinaryRequestHeader::new(SUPPORTED_PROTOCOL_VERSION, request.tag());
-            BinaryMessage::Request((header, request, request_bytes))
+            BinaryMessage::Request {
+                header,
+                request,
+                request_bytes,
+            }
         } else {
             BinaryMessage::Response(BinaryResponseAndRequest::random(rng))
         }
@@ -47,8 +55,18 @@ impl BinaryMessage {
 
     pub fn request_payload(&self) -> &[u8] {
         match self {
-            BinaryMessage::Request((_, _, payload)) => payload,
+            BinaryMessage::Request { request_bytes, .. } => request_bytes,
             _ => &[],
+        }
+    }
+}
+
+impl From<BinaryRequest> for BinaryMessage {
+    fn from(request: BinaryRequest) -> Self {
+        Self::Request {
+            header: BinaryRequestHeader::new(SUPPORTED_PROTOCOL_VERSION, request.tag()),
+            request,
+            request_bytes: vec![],
         }
     }
 }
@@ -62,7 +80,9 @@ impl ToBytes for BinaryMessage {
 
     fn write_bytes(&self, writer: &mut Vec<u8>) -> Result<(), bytesrepr::Error> {
         match self {
-            BinaryMessage::Request((header, request, _)) => {
+            BinaryMessage::Request {
+                header, request, ..
+            } => {
                 REQUEST_TAG.write_bytes(writer)?;
                 header.write_bytes(writer)?;
                 request.write_bytes(writer)
@@ -77,7 +97,9 @@ impl ToBytes for BinaryMessage {
     fn serialized_length(&self) -> usize {
         U8_SERIALIZED_LENGTH
             + match self {
-                BinaryMessage::Request(request) => request.serialized_length(),
+                BinaryMessage::Request {
+                    header, request, ..
+                } => header.serialized_length() + request.serialized_length(),
                 BinaryMessage::Response(response) => response.serialized_length(),
             }
     }
@@ -98,7 +120,7 @@ impl FromBytes for BinaryMessage {
                 // return BinaryResponse::new_error(ErrorCode::BadRequest, supported_protocol_version);
                 // };
 
-                let original_request_bytes = remainder.to_vec();
+                let request_bytes = remainder.to_vec();
 
                 let (header, remainder) = BinaryRequestHeader::from_bytes(remainder)?;
                 let Ok(tag) = BinaryRequestTag::try_from(header.type_tag()) else {
@@ -108,7 +130,11 @@ impl FromBytes for BinaryMessage {
                 let request = BinaryRequest::try_from((tag, remainder))?;
                 // 'try_from' call above ensures that there are no leftover bytes.
                 Ok((
-                    BinaryMessage::Request((header, request, original_request_bytes)),
+                    BinaryMessage::Request {
+                        header,
+                        request,
+                        request_bytes,
+                    },
                     &[],
                 ))
             }
