@@ -20,9 +20,9 @@ pub struct BinaryResponseAndRequest {
 
 impl BinaryResponseAndRequest {
     /// Creates new binary response with the original request attached.
-    pub fn new(data: BinaryResponse, original_request: &[u8]) -> Self {
+    pub fn new(data: BinaryResponse, original_request: Vec<u8>) -> Self {
         Self {
-            original_request: original_request.to_vec(),
+            original_request,
             response: data,
         }
     }
@@ -38,7 +38,7 @@ impl BinaryResponseAndRequest {
             data.to_bytes().unwrap(),
             protocol_version,
         );
-        Self::new(response, &[])
+        Self::new(response, vec![])
     }
 
     /// Returns a new binary response with specified legacy data and no original request.
@@ -52,7 +52,7 @@ impl BinaryResponseAndRequest {
             bincode::serialize(data).unwrap(),
             protocol_version,
         );
-        Self::new(response, &[])
+        Self::new(response, vec![])
     }
 
     /// Returns true if response is success.

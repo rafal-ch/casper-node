@@ -28,7 +28,7 @@ const RESPONSE_TAG: u8 = 1;
 // TODO[RC]: To dedicated file
 #[derive(Debug, Clone, PartialEq)]
 pub enum BinaryMessage {
-    Request((BinaryRequestHeader, BinaryRequest)),
+    Request((BinaryRequestHeader, BinaryRequest, Vec<u8>)),
     Response(BinaryResponseAndRequest),
 }
 
@@ -37,10 +37,18 @@ impl BinaryMessage {
     pub(crate) fn random(rng: &mut TestRng) -> Self {
         if rng.gen() {
             let request = BinaryRequest::random(rng);
+            let request_bytes = request.to_bytes().expect("should serialize");
             let header = BinaryRequestHeader::new(SUPPORTED_PROTOCOL_VERSION, request.tag());
-            BinaryMessage::Request((header, request))
+            BinaryMessage::Request((header, request, request_bytes))
         } else {
             BinaryMessage::Response(BinaryResponseAndRequest::random(rng))
+        }
+    }
+
+    pub fn request_payload(&self) -> &[u8] {
+        match self {
+            BinaryMessage::Request((_, _, payload)) => payload,
+            _ => &[],
         }
     }
 }
@@ -54,7 +62,7 @@ impl ToBytes for BinaryMessage {
 
     fn write_bytes(&self, writer: &mut Vec<u8>) -> Result<(), bytesrepr::Error> {
         match self {
-            BinaryMessage::Request((header, request)) => {
+            BinaryMessage::Request((header, request, _)) => {
                 REQUEST_TAG.write_bytes(writer)?;
                 header.write_bytes(writer)?;
                 request.write_bytes(writer)
@@ -90,6 +98,8 @@ impl FromBytes for BinaryMessage {
                 // return BinaryResponse::new_error(ErrorCode::BadRequest, supported_protocol_version);
                 // };
 
+                let original_request_bytes = remainder.to_vec();
+
                 let (header, remainder) = BinaryRequestHeader::from_bytes(remainder)?;
                 let Ok(tag) = BinaryRequestTag::try_from(header.type_tag()) else {
                     todo!(); // TODO[RC]: Error handling
@@ -97,7 +107,10 @@ impl FromBytes for BinaryMessage {
                 };
                 let request = BinaryRequest::try_from((tag, remainder))?;
                 // 'try_from' call above ensures that there are no leftover bytes.
-                Ok((BinaryMessage::Request((header, request)), &[]))
+                Ok((
+                    BinaryMessage::Request((header, request, original_request_bytes)),
+                    &[],
+                ))
             }
             RESPONSE_TAG => {
                 let (response, remainder) = FromBytes::from_bytes(remainder)?;

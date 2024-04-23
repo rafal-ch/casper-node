@@ -820,14 +820,14 @@ where
 {
     let mut framed = Framed::new(stream, BinaryMessageCodec {});
     while let Some(message) = framed.next().await.transpose().unwrap() {
+        let request_payload = message.request_payload().to_vec();
         let resp = handle_message(
             effect_builder,
             message,
             effect_builder.get_protocol_version().await,
         )
         .await;
-        // TODO[RC]: Needs payload here instead of empty slice.
-        let resp_and_payload = BinaryResponseAndRequest::new(resp, &[]);
+        let resp_and_payload = BinaryResponseAndRequest::new(resp, request_payload);
         framed
             .send(BinaryMessage::Response(resp_and_payload))
             .await
@@ -863,7 +863,7 @@ async fn handle_message<REv>(
 where
     REv: From<Event>,
 {
-    let BinaryMessage::Request((header, request)) = message else {
+    let BinaryMessage::Request((header, request, _)) = message else {
         // TODO[RC]: Got response instead of request
         return BinaryResponse::new_error(ErrorCode::BadRequest, supported_protocol_version);
     };
