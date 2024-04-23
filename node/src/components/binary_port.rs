@@ -804,8 +804,6 @@ async fn client_loop<REv>(
     effect_builder: EffectBuilder<REv>,
 ) -> Result<(), Error>
 where
-    // R: AsyncRead + Unpin,
-    // W: AsyncWrite + Unpin,
     REv: From<Event>
         + From<StorageRequest>
         + From<ContractRuntimeRequest>
@@ -819,7 +817,7 @@ where
         + Send,
 {
     let mut framed = Framed::new(stream, BinaryMessageCodec {});
-    while let Some(message) = framed.next().await.transpose().unwrap() {
+    while let Some(message) = framed.next().await.transpose()? {
         let request_payload = message.request_payload().to_vec();
         let resp = handle_message(
             effect_builder,
@@ -831,30 +829,13 @@ where
         framed
             .send(BinaryMessage::Response(resp_and_payload))
             .await
+            // TODO[RC]: Fix unwrap()
             .unwrap();
     }
 
     Ok(())
-
-    // loop {
-    //     let Some(incoming_request) = server.next_request().await? else {
-    //         debug!("remote party closed the connection");
-    //         return Ok(());
-    //     };
-
-    //     let Some(payload) = incoming_request.payload() else {
-    //         return Err(Error::NoPayload);
-    //     };
-
-    //     let version = effect_builder.get_protocol_version().await;
-    //     let resp = handle_payload(effect_builder, payload, version).await;
-    //     // Have response here, encode here.
-    //     let resp_and_payload = BinaryResponseAndRequest::new(resp, payload);
-    //     incoming_request.respond(Some(Bytes::from(ToBytes::to_bytes(&resp_and_payload)?)))
-    // }
 }
 
-// TODO[RC]: Responding here
 async fn handle_message<REv>(
     effect_builder: EffectBuilder<REv>,
     message: BinaryMessage,
@@ -905,11 +886,6 @@ async fn handle_client<REv>(
         + From<ChainspecRawBytesRequest>
         + Send,
 {
-    //let (reader, writer) = client.split();
-    // We are a server, we won't make any requests of our own, but we need to keep the client
-    // around, since dropping the client will trigger a server shutdown.
-    // let (_client, server) = new_rpc_builder(&config).build(reader, writer);
-
     if let Err(err) = client_loop(stream, effect_builder).await {
         // Low severity is used to prevent malicious clients from causing log floods.
         info!(%addr, err=display_error(&err), "binary port client handler error");

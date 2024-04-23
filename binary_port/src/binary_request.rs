@@ -7,7 +7,7 @@ use casper_types::{
 };
 use tokio_util::codec;
 
-use crate::{get_request::GetRequest, BinaryResponse, BinaryResponseAndRequest, Error};
+use crate::{get_request::GetRequest, BinaryResponse, BinaryResponseAndRequest, Error, ErrorCode};
 
 #[cfg(test)]
 use casper_types::testing::TestRng;
@@ -19,8 +19,7 @@ const LENGTH_ENCODING_SIZE_BYTES: usize = std::mem::size_of::<LengthEncoding>();
 // TODO: To config
 const MAX_REQUEST_SIZE_BYTES: usize = 1024 * 1024; // 1MB
 
-// TODO: Move to binary port
-pub const SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::from_parts(2, 0, 0);
+const SUPPORTED_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::from_parts(2, 0, 0);
 
 const REQUEST_TAG: u8 = 0;
 const RESPONSE_TAG: u8 = 1;
@@ -40,16 +39,26 @@ impl BinaryMessage {
     #[cfg(test)]
     pub(crate) fn random(rng: &mut TestRng) -> Self {
         if rng.gen() {
-            let request = BinaryRequest::random(rng);
-            let request_bytes = request.to_bytes().expect("should serialize");
-            let header = BinaryRequestHeader::new(SUPPORTED_PROTOCOL_VERSION, request.tag());
-            BinaryMessage::Request {
-                header,
-                request,
-                request_bytes,
-            }
+            Self::random_request(rng)
         } else {
             BinaryMessage::Response(BinaryResponseAndRequest::random(rng))
+        }
+    }
+
+    #[cfg(test)]
+    fn random_request(rng: &mut TestRng) -> BinaryMessage {
+        let request = BinaryRequest::random(rng);
+        let header = BinaryRequestHeader::new(SUPPORTED_PROTOCOL_VERSION, request.tag());
+        let mut request_bytes = header.to_bytes().unwrap();
+        dbg!(&request_bytes);
+        dbg!(&request_bytes.len());
+
+        request_bytes.extend(&request.to_bytes().unwrap());
+
+        BinaryMessage::Request {
+            header,
+            request,
+            request_bytes,
         }
     }
 
@@ -110,24 +119,18 @@ impl FromBytes for BinaryMessage {
         let (tag, remainder) = FromBytes::from_bytes(bytes)?;
         match tag {
             REQUEST_TAG => {
-                // TODO[RC]: Make sure these checks are in place
-                // we might receive a request added in a minor version if we're behind
-                // let Ok(tag) = BinaryRequestTag::try_from(header.type_tag()) else {
-                // return BinaryResponse::new_error(ErrorCode::UnsupportedRequest, supported_protocol_version);
-                // };
-
-                // let Ok(request) = BinaryRequest::try_from((tag, remainder)) else {
-                // return BinaryResponse::new_error(ErrorCode::BadRequest, supported_protocol_version);
-                // };
-
                 let request_bytes = remainder.to_vec();
-
                 let (header, remainder) = BinaryRequestHeader::from_bytes(remainder)?;
                 let Ok(tag) = BinaryRequestTag::try_from(header.type_tag()) else {
-                    todo!(); // TODO[RC]: Error handling
-                    //return BinaryResponse::new_error(ErrorCode::UnsupportedRequest, protocol_version);
+                    let response = BinaryResponse::new_error(ErrorCode::UnsupportedRequest, SUPPORTED_PROTOCOL_VERSION);
+                    let response_and_request = BinaryResponseAndRequest::new(response, request_bytes);
+                    return Ok((BinaryMessage::Response(response_and_request), &[]));
                 };
-                let request = BinaryRequest::try_from((tag, remainder))?;
+                let Ok(request) = BinaryRequest::try_from((tag, remainder)) else {
+                    let response =  BinaryResponse::new_error(ErrorCode::BadRequest, SUPPORTED_PROTOCOL_VERSION);
+                    let response_and_request = BinaryResponseAndRequest::new(response, request_bytes);
+                    return Ok((BinaryMessage::Response(response_and_request), &[]));
+                };
                 // 'try_from' call above ensures that there are no leftover bytes.
                 Ok((
                     BinaryMessage::Request {
@@ -529,5 +532,65 @@ mod tests {
 
         let result = codec.decode(&mut bytes).unwrap_err();
         assert!(matches!(result, Error::EmptyRequest));
+    }
+
+    #[test]
+    fn binary_message_codec_should_bail_on_unsupported_request() {
+        let rng = &mut TestRng::new();
+        let mut val = BinaryMessage::random_request(rng);
+        match &mut val {
+            BinaryMessage::Request { header, .. } => header.type_tag = u8::MAX,
+            BinaryMessage::Response(_) => unreachable!(),
+        }
+
+        let mut codec = BinaryMessageCodec {};
+        let mut bytes = bytes::BytesMut::new();
+        codec
+            .encode(val.clone(), &mut bytes)
+            .expect("should encode");
+
+        let decoded = codec
+            .decode(&mut bytes)
+            .expect("should decode")
+            .expect("should be Some");
+
+        if let BinaryMessage::Response(response) = decoded {
+            assert_eq!(
+                response.response().error_code(),
+                ErrorCode::UnsupportedRequest as u8
+            );
+        } else {
+            assert!(false, "expected response");
+        }
+    }
+
+    #[test]
+    fn binary_message_codec_should_bail_on_malformed_request() {
+        let rng = &mut TestRng::new();
+        let val = BinaryMessage::random_request(rng);
+        let mut codec = BinaryMessageCodec {};
+        let mut bytes = bytes::BytesMut::new();
+        codec
+            .encode(val.clone(), &mut bytes)
+            .expect("should encode");
+
+        // ??? encoded size (4 bytes) + BinaryMessage tag (1 byte) + header length (3 bytes) + request length (1 byte)
+        // Forge GetRequest with invalid tag
+        const REQUEST_TAG_OFFSET: usize = 4 + 1 + 13;
+        bytes[REQUEST_TAG_OFFSET] = u8::MAX;
+
+        let decoded = codec
+            .decode(&mut bytes)
+            .expect("should decode")
+            .expect("should be Some");
+
+        if let BinaryMessage::Response(response) = decoded {
+            assert_eq!(
+                response.response().error_code(),
+                ErrorCode::BadRequest as u8
+            );
+        } else {
+            assert!(false, "expected response");
+        }
     }
 }
