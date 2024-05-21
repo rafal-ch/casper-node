@@ -1,3 +1,5 @@
+use core::fmt;
+
 #[cfg(test)]
 use casper_types::testing::TestRng;
 #[cfg(test)]
@@ -109,6 +111,19 @@ impl GlobalStateRequest {
                 key_prefix: KeyPrefix::random(rng),
             },
             _ => unreachable!(),
+        }
+    }
+}
+
+impl fmt::Display for GlobalStateRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            GlobalStateRequest::Item { .. } => write!(f, "Item"),
+            GlobalStateRequest::AllItems { .. } => write!(f, "AllItems"),
+            GlobalStateRequest::Trie { .. } => write!(f, "Trie"),
+            GlobalStateRequest::DictionaryItem { .. } => write!(f, "DictionaryItem"),
+            GlobalStateRequest::Balance { .. } => write!(f, "Balance"),
+            GlobalStateRequest::ItemsByPrefix { .. } => write!(f, "ItemsByPrefix"),
         }
     }
 }

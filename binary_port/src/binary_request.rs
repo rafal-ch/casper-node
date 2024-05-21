@@ -1,4 +1,4 @@
-use core::convert::TryFrom;
+use core::{convert::TryFrom, fmt};
 
 use casper_types::{
     bytesrepr::{self, FromBytes, ToBytes},
@@ -115,6 +115,20 @@ impl BinaryRequest {
             BinaryRequestTag::TrySpeculativeExec => Self::TrySpeculativeExec {
                 transaction: Transaction::random(rng),
             },
+        }
+    }
+}
+
+impl fmt::Display for BinaryRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BinaryRequest::Get(get_request) => write!(f, "Get({})", get_request),
+            BinaryRequest::TryAcceptTransaction { transaction } => {
+                write!(f, "TryAcceptTransaction({})", transaction)
+            }
+            BinaryRequest::TrySpeculativeExec { transaction } => {
+                write!(f, "TrySpeculativeExec({})", transaction)
+            }
         }
     }
 }

@@ -1,3 +1,5 @@
+use core::fmt;
+
 use casper_types::bytesrepr::{self, Bytes, FromBytes, ToBytes, U8_SERIALIZED_LENGTH};
 
 use crate::state_request::GlobalStateRequest;
@@ -46,6 +48,20 @@ impl GetRequest {
             },
             2 => GetRequest::State(Box::new(GlobalStateRequest::random(rng))),
             _ => unreachable!(),
+        }
+    }
+}
+
+impl fmt::Display for GetRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            GetRequest::Record {
+                record_type_tag, ..
+            } => write!(f, "Record({})", record_type_tag),
+            GetRequest::Information { info_type_tag, .. } => {
+                write!(f, "Information({})", info_type_tag)
+            }
+            GetRequest::State(request) => write!(f, "State({})", request),
         }
     }
 }
